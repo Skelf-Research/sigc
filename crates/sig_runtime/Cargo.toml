@@ -18,3 +18,10 @@ url.workspace = true
 futures.workspace = true
 tokio.workspace = true
 reqwest.workspace = true
+
+[dev-dependencies]
+criterion = "0.5"
+
+[[bench]]
+name = "kernels"
+harness = false

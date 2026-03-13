@@ -16,20 +16,117 @@ Quant shops lose hours every week to ad hoc Python notebooks: mismatched calenda
 - **Caching** with sled + blake3 keeps both plan compilation and materialized panels fast and reproducible.
 - **Adapters** let BacktestPlans execute on the builtin engine, PyO3 bridges, C ABI stubs, or RPC clients — without touching the core.
 
-## Getting started (planned)
+## Getting started
 
-1. **Install Rust nightly + toolchain** (exact instructions TBD once crates land).
-2. `cargo build --bin sigc` to produce the single binary.
-3. `sigc run examples/momentum.sig` to compile and backtest a sample factor (see `examples/`).
-4. Inspect cached artifacts with `sigc explain <run-id>` or compare runs using `sigc diff A B`.
+1. **Install Rust toolchain** (1.70+)
+   ```bash
+   curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+   ```
 
-> Until code lands, follow the engineering plan in `docs/` for the implementation roadmap.
+2. **Build the binary**
+   ```bash
+   cargo build --release
+   ```
+
+3. **Compile a signal**
+   ```bash
+   ./target/release/sigc compile examples/momentum.sig
+   ```
+
+4. **Run a backtest**
+   ```bash
+   ./target/release/sigc run examples/momentum.sig
+   ```
+
+5. **Start daemon mode**
+   ```bash
+   ./target/release/sigc daemon
+   ```
+
+## DSL Example
+
+```
+data:
+  prices: load parquet from "data/prices.parquet"
+
+params:
+  lookback = 10
+  top_pct = 0.2
+
+signal momentum:
+  returns = ret(prices, lookback)
+  score = zscore(returns)
+  cleaned = winsor(score, p=0.01)
+  emit cleaned
+
+portfolio main:
+  weights = rank(momentum).long_short(top=top_pct, bottom=top_pct)
+  backtest from 2024-01-01 to 2024-12-31
+```
+
+## Available Operators
+
+**Time-series**: `ret`, `lag`, `diff`, `rolling_mean`, `rolling_std`, `rolling_sum`, `rolling_min`, `rolling_max`, `rsi`, `macd`, `atr`, `vwap`
+
+**Cross-sectional**: `zscore`, `rank`, `winsor`, `demean`, `scale`, `quantile`, `bucket`, `median`, `mad`
+
+**Data handling**: `abs`, `sqrt`, `floor`, `ceil`, `round`, `is_nan`, `fill_nan`, `coalesce`, `cumsum`, `cumprod`
+
+**Portfolio**: `long_short`, `neutralize`, `clip`
+
+## Advanced Features
+
+### Walk-Forward Optimization
+```rust
+use sig_runtime::{WalkForward, WalkForwardConfig};
+
+let config = WalkForwardConfig::new(252, 126, 21); // total, train, test
+let mut wf = WalkForward::new(config);
+wf.add_range("period", 5.0, 30.0, 5.0);
+
+let result = wf.run(&ir, &mut runtime)?;
+println!("Efficiency ratio: {:.2}%", result.efficiency_ratio * 100.0);
+```
+
+### Transaction Costs
+```rust
+use sig_runtime::{CostModel, ImpactModel};
+
+let model = CostModel::institutional()
+    .with_impact(ImpactModel::SquareRoot { coefficient: 0.05 });
+
+let cost = model.calculate_cost(100000.0, Some(1000000.0), false, 21.0);
+```
+
+### Universe Management
+```rust
+use sig_runtime::{Universe, UniverseManager};
+
+let manager = UniverseManager::new().with_builtins();
+let sp500 = manager.get("SP500").unwrap();
+let tech = sp500.by_sector("Technology");
+```
+
+### Visualization
+```rust
+use sig_runtime::ReportVisualizer;
+
+let visualizer = ReportVisualizer::new();
+visualizer.save_html(&report, &returns, "report.html")?;
+```
 
 ## Project status
 
-- Architecture and business motivations are captured in [`specs.md`](specs.md).
-- Implementation is pre-alpha; we are currently drafting the compiler/runtime scaffolding and unifying binaries.
-- Community feedback is welcome — especially from quant researchers or infra teams who have fought similar battles.
+**Completed:**
+- Phase 1: Foundations (workspace, types, caching, connectors)
+- Phase 2: Compiler (parser, type inference, 60+ operators, IR)
+- Phase 3: Runtime (data loading, 60+ kernels, backtester, Panel data, GridSearch, PyO3)
+- Phase 4: Services (daemon mode, PyO3 adapter)
+
+**In Progress:**
+- Phase 5: Quality bar (integration tests, benchmarks, reporting, CI/CD, documentation)
+
+See [`docs/build-roadmap.md`](docs/build-roadmap.md) for the full implementation roadmap.
 
 ## Documentation
 

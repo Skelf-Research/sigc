@@ -3,21 +3,33 @@
 //! Executes IR and manages data ingestion.
 
 pub mod backtest;
+pub mod connectors;
+pub mod costs;
 pub mod data;
 pub mod engine;
 pub mod kernels;
 pub mod optimize;
 pub mod panel;
+pub mod reporting;
+pub mod universe;
+pub mod viz;
+pub mod walk_forward;
 
 use polars::prelude::*;
 use sig_types::{BacktestPlan, BacktestReport, Ir, Result};
 use std::collections::HashMap;
 
 pub use backtest::Backtester;
+pub use connectors::{Connector, SqlConnector, CloudConnector, ConnectorRegistry, ConnectorEnv};
+pub use costs::{CostModel, ImpactModel, TradeCost, PortfolioCostCalculator, PortfolioCost};
 pub use data::{DataFormat, DataLoader, DataManager, DataSource, DateRange};
 pub use engine::Engine;
 pub use optimize::{GridSearch, OptimizationResult};
 pub use panel::Panel;
+pub use reporting::{Attribution, ReportExporter};
+pub use universe::{Universe, UniverseManager, DynamicUniverse, MarketCapCategory};
+pub use viz::{ChartGenerator, ReportVisualizer};
+pub use walk_forward::{WalkForward, WalkForwardConfig, WalkForwardResult, FoldResult};
 
 /// Runtime execution context
 pub struct Runtime {
