@@ -3737,6 +3737,7 @@ dependencies = [
  "object_store 0.11.2",
  "polars",
  "rand 0.8.5",
+ "rayon",
  "reqwest",
  "sig_cache",
  "sig_compiler",

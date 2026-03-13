@@ -3,6 +3,7 @@
 //! Supports both time-series (per asset) and cross-sectional (across assets) operations.
 
 use polars::prelude::*;
+use rayon::prelude::*;
 use sig_types::{Result, SigcError};
 
 /// Panel data: rows = time, columns = assets
@@ -53,17 +54,20 @@ impl Panel {
     /// Apply a time-series operation to each asset independently
     pub fn apply_ts<F>(&self, f: F) -> Result<Panel>
     where
-        F: Fn(&Series) -> Result<Series>,
+        F: Fn(&Series) -> Result<Series> + Sync,
     {
-        let mut new_columns: Vec<Column> = Vec::new();
+        let results: Vec<Result<Column>> = self.assets
+            .par_iter()
+            .map(|asset| {
+                let col = self.data.column(asset)
+                    .map_err(|e| SigcError::Runtime(format!("Column not found: {}", e)))?;
+                let series = col.as_series().unwrap();
+                let result = f(series)?;
+                Ok(result.into_column())
+            })
+            .collect();
 
-        for asset in &self.assets {
-            let col = self.data.column(asset)
-                .map_err(|e| SigcError::Runtime(format!("Column not found: {}", e)))?;
-            let series = col.as_series().unwrap();
-            let result = f(series)?;
-            new_columns.push(result.into_column());
-        }
+        let new_columns: Vec<Column> = results.into_iter().collect::<Result<_>>()?;
 
         let new_data = DataFrame::new(new_columns)
             .map_err(|e| SigcError::Runtime(format!("Failed to create result: {}", e)))?;
@@ -74,7 +78,7 @@ impl Panel {
     /// Apply a cross-sectional operation across assets at each time point
     pub fn apply_xs<F>(&self, f: F) -> Result<Panel>
     where
-        F: Fn(&[f64]) -> Vec<f64>,
+        F: Fn(&[f64]) -> Vec<f64> + Sync,
     {
         let n_assets = self.n_assets();
         let n_periods = self.n_periods;
@@ -92,18 +96,19 @@ impl Panel {
             asset_values.push(values);
         }
 
-        // Apply cross-sectional function at each time point
+        // Apply cross-sectional function at each time point in parallel
+        let time_results: Vec<Vec<f64>> = (0..n_periods)
+            .into_par_iter()
+            .map(|t| {
+                let xs: Vec<f64> = asset_values.iter().map(|v| v[t]).collect();
+                f(&xs)
+            })
+            .collect();
+
+        // Transpose results: time_results[t][asset] -> result_values[asset][t]
         let mut result_values: Vec<Vec<f64>> = vec![vec![0.0; n_periods]; n_assets];
-
-        for t in 0..n_periods {
-            // Get cross-section at time t
-            let xs: Vec<f64> = asset_values.iter().map(|v| v[t]).collect();
-
-            // Apply function
-            let transformed = f(&xs);
-
-            // Store results
-            for (i, &val) in transformed.iter().enumerate() {
+        for (t, row) in time_results.iter().enumerate() {
+            for (i, &val) in row.iter().enumerate() {
                 result_values[i][t] = val;
             }
         }
