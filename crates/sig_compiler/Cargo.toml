@@ -1,0 +1,12 @@
+[package]
+name = "sig_compiler"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+sig_types.workspace = true
+sig_cache.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+chumsky.workspace = true
+ariadne.workspace = true

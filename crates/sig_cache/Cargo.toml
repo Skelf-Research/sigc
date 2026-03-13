@@ -1,0 +1,12 @@
+[package]
+name = "sig_cache"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+sig_types.workspace = true
+sled.workspace = true
+blake3.workspace = true
+rkyv.workspace = true
+thiserror.workspace = true
+tracing.workspace = true

@@ -1,0 +1,14 @@
+[package]
+name = "pysigc"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+name = "pysigc"
+crate-type = ["cdylib"]
+
+[dependencies]
+sig_types.workspace = true
+sig_compiler.workspace = true
+sig_runtime.workspace = true
+pyo3 = { version = "0.21", features = ["extension-module"] }

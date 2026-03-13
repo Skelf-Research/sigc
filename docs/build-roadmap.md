@@ -1,0 +1,121 @@
+# Build Roadmap
+
+This document captures the near-term execution plan for bringing `sigc` from architectural spec to a single self-contained binary that ships the compiler, runtime, and developer tooling.
+
+## 0. Guiding goals
+
+- **Single binary story**: `sigc` should compile into one executable that exposes subcommands (`compile`, `run`, `daemon`, `explain`, etc.). No separate daemons need to be deployed during the first milestones.
+- **Deterministic research loop**: every run produces reproducible artifacts (plans, reports, graphs) stored in sled using blake3 keys.
+- **Rust-first ergonomics**: keep the critical path in Rust (IR, runtime kernels, caching, adapters) while leaving room for PyO3 and RPC adapters later.
+- **Python-like DSL experience**: the surface language is ergonomic but compiles to a typed IR that guarantees shape/dtype safety.
+
+## Phase 1 — Foundations
+
+| Deliverable | Notes |
+| ----------- | ----- |
+| Workspace layout | Cargo workspace with crates: `sig_compiler`, `sig_runtime`, `sig_cache`, `sigc` (binary), plus shared `sig_types`. |
+| Core types crate | Define shapes, dtypes, type annotations, operator enum, and `BacktestPlan`/`BacktestReport` skeletons using `rkyv`. |
+| Hashing + caching module | Wrapper around sled with blake3 keys for plan/materialized caches. |
+| Connector abstraction | Define traits for `DataSource`, `CalendarProvider`, and `SecretsResolver` so future connectors (S3, SQL, etc.) plug in without refactors. |
+| Config + logging baseline | `tracing` setup, CLI config loading, feature flags for adapter support. |
+
+**Exit criteria**: `cargo build` produces a single `sigc` binary that can print version info and confirm sled DB initialization.
+
+## Phase 2 — Compiler path
+
+| Deliverable | Notes |
+| ----------- | ----- |
+| DSL parser | Prototype using `chumsky` (indent-aware). Should parse loads, params, signal blocks, and basic expressions. |
+| Type inference | Implement shape/dtype propagation, emitting rich diagnostics (source span, expected vs actual). |
+| Stdlib surface | Seed library with parity-critical primitives (cross-sectional, time-series, portfolio) and docstrings for inline help. |
+| IR lowering | Convert AST into `IR` with node/type tables, attach run metadata. Cache compiled IR by source hash. |
+| CLI `compile` | `sigc compile input.sig --emit ir.rkyv` to validate the pipeline and store plan in sled. |
+
+**Exit criteria**: `sigc compile examples/momentum.sig` (and companion examples) succeeds and caches the IR; repeated runs hit the cache.
+
+## Phase 3 — Runtime + Backtester
+
+| Deliverable | Notes |
+| ----------- | ----- |
+| Data ingestion | Arrow/Polars ingestion layer capable of loading parquet/csv, applying adjustments, aligning calendars, and managing corporate actions via pluggable adjusters. |
+| Connector adapters | Implement S3/GCS, local FS, and SQL (Snowflake/Redshift) loaders using the Phase 1 abstraction. |
+| Kernel library | SIMD-accelerated primitives: `ret`, `lag`, `zscore`, `rank`, `winsor`, `neutralize`, `long_short`. |
+| Execution engine | Traverse IR nodes, execute kernels with caching of intermediate panel outputs. |
+| Builtin backtester | Implement long/short portfolio construction, beta & sector neutralization, turnover/exposure caps, and cost modeling (bps, linear, square-root impact). |
+| Reporting hooks | Generate plan/report artifacts with provenance metadata (git sha, schema hashes, NA policies). |
+| CLI `run` | `sigc run input.sig` performs compile+execute in-process, storing `BacktestPlan`/`BacktestReport` artifacts. |
+
+**Exit criteria**: All reference strategies under `examples/` run end-to-end within a single process, with artifacts persisted and re-runnable.
+
+## Phase 4 — Services + Adapters
+
+| Deliverable | Notes |
+| ----------- | ----- |
+| Embedded daemon mode | `sigc daemon --listen nng://127.0.0.1:7240` starts the REQ/REP loop inside the same binary. |
+| CLI client subcommands | `sigc daemon`, `sigc explain`, `sigc diff`, sharing code with the in-process runtime. |
+| PyO3 adapter stub | Feature-gated module exposing Arrow IPC to Python, parity with Python research workflows. |
+| C ABI + RPC adapters | Provide stubs for C++/Lean integrations and remote engines (nng). |
+| Rhai hooks skeleton | Allow registering plugins for post-rebalance callbacks and engine selection toggles. |
+| Observability | Emit structured logs/metrics, optional Prometheus exporter, audit log for run provenance. |
+
+**Exit criteria**: The single `sigc` binary can serve as a daemon or run locally, and adapters can be loaded via feature flags.
+
+## Phase 5 — Quality bar + Distribution
+
+| Deliverable | Notes |
+| ----------- | ----- |
+| Integration tests | Golden end-to-end runs, cache hit/miss scenarios, deterministic outputs. |
+| Benchmark harness | Measure kernel performance vs pure Polars baseline. |
+| Reporting/attribution | Factor & sector attribution, P&L breakdown exports (CSV/Parquet/HTML), rolling dashboards ready for BI embedding. |
+| Packaging | Release profiles, cross-compilation targets, GitHub Actions for CI + artifact upload. |
+| Documentation pass | User manual covering language/reference, data connector guides, governance and contribution docs. |
+
+**Exit criteria**: Ready for an 0.1.0 release with reproducible builds, docs, and basic community guidelines.
+
+## Strategic milestones
+
+| Milestone | Focus | Key Deliverables |
+| --------- | ----- | ---------------- |
+| **M0. Bootstrap** | Toolchain + binary skeleton | Cargo workspace, shared types crate, sled-backed cache harness, unified `sigc` binary with subcommand scaffolding, CI smoke build. |
+| **M1. Language Core** | Compiler and typing | Chumsky (or equivalent) parser, AST with span metadata, symbol resolver, type/shape inference, minimal stdlib (`lag`, `ret`, `rolling.mean`, `zscore`, `rank`, `neutralize`, `winsor`, `clip`), IR lowering with rkyv serialization. |
+| **M2. Execution Platform** | Deterministic compute | Columnar execution engine (Arrow/Polars), SIMD kernel prototypes for heavy transforms, sled-backed plan/materialized cache, CLI `compile`/`run` plumbing with reproducible artifacts, connector drivers (S3, SQL, FS). |
+| **M3. Portfolio Construction** | Backtesting fidelity | Builtin backtester covering long/short workflows, beta & sector projections, turnover/cap enforcement, costs/slippage models, CSV/Parquet weight export and HTML/Markdown summary reports, attribution hooks. |
+| **M4. Optimization & Data** | Performance + ingestion | Window fusion pass, CSE, Polars multi-core backend, calendar/universe management, NA policy controls, corporate action adjustment APIs. |
+| **M5. Diagnostics & QA** | Trust + observability | Dependency graph visualizer, type/shape explain command, property tests vs reference numpy/pandas, reproducibility metadata (git sha, schema hashes), `sigc explain`, `sigc diff`, telemetry/metrics endpoints. |
+| **M6. Extensibility** | Ecosystem adapters | Feature-gated PyO3 adapter, C ABI surface, nng RPC client/server modes, Rhai hook system, user-defined kernel sandbox, plugin registry documentation. |
+| **M7. Python Front Door** | Notebook-first adoption | Thin PyO3-powered Python API mirroring DSL primitives (`SignalGraph`, decorators), seamless IR sharing between Python and DSL, notebook integration examples, Pandas/Polars result adapters. |
+| **M8. Operations & Governance** | Enterprise readiness | Secrets/config profiles, RBAC hooks, audit logging policies, deployment guides (on-prem & cloud), security review checklist, contribution governance model. |
+| **M9. Distribution & Adoption** | Productization | Release automation, cross-compilation targets, binary signing, example gallery covering momentum/value/alt data recipes, internal cookbook (10 recipes), contribution guide, licensing clarity. |
+
+## Practitioner parity requirements
+
+| Category | Required capabilities | Notes |
+| -------- | --------------------- | ----- |
+| Language & UX | Full signal DSL coverage (params, nested scopes, user-defined helpers), comprehensive stdlib for cross-sectional, time-series, portfolio operations, rich error diagnostics with source spans, inline doc/help system. | Should match or exceed ergonomics of internal desk DSLs; enable linting, formatting, and IDE hints. |
+| Data & Integration | Connectors for Parquet/Arrow, CSV, SQL warehouses (Snowflake/Redshift), S3/GCS object stores with credential management, calendar/universe management, corporate actions handling, adjustable NA policies. | Practitioners expect one-click access to existing data lakes and corporate action adjustments without bespoke scripts. |
+| Analytics & Backtesting | Long/short construction, beta/sector/country/style neutralization, flexible rebalancing schedules, turnover and exposure caps, multi-scenario/backtest sweeps, transaction cost and slippage models (bps, linear impact, square-root), benchmark-relative analytics. | Needs parity with institutional backtesters (AlyxLang, Quill, internal Python frameworks). |
+| Reporting & Attribution | Factor/sector attribution, P&L decomposition (alpha/beta/costs), rolling metric dashboards, export to CSV/Parquet/HTML, integration with BI notebooks, human-readable run manifests, run diffing. | Enables investment committees and PMs to consume outputs directly. |
+| Observability & Reproducibility | Artifact store with provenance (git sha, schema hashes, parameter dumps), deterministic replays, cache verification/repair tools, audit logs, metrics/telemetry exposed via CLI and optional Prometheus. | Satisfies compliance and model governance requirements. |
+| Extensibility & Interop | PyO3 bridge for Python workflows, C ABI and RPC adapters, plugin hooks (Rhai), ability to call external risk models/optimizers, user-defined kernels (with safety sandbox). | Ensures teams can integrate with existing risk/OMS/analytics stacks. |
+| Operations & Governance | Role-based access patterns, secrets management, configuration profiles per environment, release cadence with migrations, contribution guidelines, security reviews, licensing clarity. | Critical for production adoption inside regulated firms. |
+
+## Adoption roadmap
+
+| Stage | Target users | Objectives | Feature gates |
+| ----- | ------------ | ---------- | ------------- |
+| **Alpha (internal research)** | Core dev team + power users | Validate DSL ergonomics, IR correctness, runtime performance on curated datasets, iterate quickly on stdlib gaps. | Enable experimental language features; restrict to local data sources; manual artifact management. |
+| **Beta (team-wide)** | Quant researchers within the org | Achieve functional parity with existing Python notebooks/backtesters, provide migration guides, ensure reproducibility and diagnostics meet desk expectations. | Turn on caching, built-in backtester, reporting, authentication hooks for shared data. |
+| **Release Candidate** | Broader org + pilot clients | Harden performance, complete adapters (Python front door, RPC), finalize reporting stack, ensure integrations with risk/OMS pipelines, pilot RBAC/secrets profiles. | Feature freeze except bug fixes; start collecting adoption metrics; security review kickoff. |
+| **General Availability** | External or multi-team deployment | Deliver signed binaries, full documentation, support SLA, governance process, plugin marketplace guidelines. | Lock down ABI, versioned DSL grammar, long-term support branches, telemetry opt-in/opt-out controls, pass security review checklist. |
+
+## Risk & mitigation
+
+- **Parser/DSL complexity** → Start with a restricted grammar; grow features after runtime stabilizes.
+- **Runtime correctness** → Build property tests comparing against NumPy/Polars reference implementations.
+- **Cache corruption** → Store versioned metadata with sled keys; provide `sigc cache verify` command for maintenance.
+- **Single binary sprawl** → Use feature-gated modules so non-essential adapters can be disabled in `cargo build --no-default-features`.
+
+## Decision log links (future)
+
+- `docs/decisions/0001-cargo-layout.md` *(planned)*
+- `docs/decisions/0002-dsl-grammar.md` *(planned)*

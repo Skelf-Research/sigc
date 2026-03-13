@@ -1,0 +1,9 @@
+[package]
+name = "sig_types"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+rkyv.workspace = true
+serde.workspace = true
+thiserror.workspace = true

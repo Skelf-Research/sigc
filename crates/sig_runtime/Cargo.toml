@@ -1,0 +1,20 @@
+[package]
+name = "sig_runtime"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+sig_types.workspace = true
+sig_cache.workspace = true
+sig_compiler.workspace = true
+polars.workspace = true
+arrow.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+rand.workspace = true
+rayon.workspace = true
+object_store.workspace = true
+url.workspace = true
+futures.workspace = true
+tokio.workspace = true
+reqwest.workspace = true

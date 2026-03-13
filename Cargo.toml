@@ -1,0 +1,67 @@
+[workspace]
+members = [
+    "crates/sig_types",
+    "crates/sig_cache",
+    "crates/sig_compiler",
+    "crates/sig_runtime",
+    "crates/sigc",
+    "crates/pysigc",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/dipankar/sigc"
+
+[workspace.dependencies]
+# Serialization
+rkyv = { version = "0.7", features = ["validation"] }
+serde = { version = "1.0", features = ["derive"] }
+
+# Caching
+sled = "0.34"
+blake3 = "1.5"
+
+# Data processing
+polars = { version = "0.44", features = ["lazy", "parquet", "csv"] }
+arrow = "53"
+
+# CLI
+clap = { version = "4.5", features = ["derive"] }
+
+# Async
+tokio = { version = "1.41", features = ["full"] }
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Error handling
+thiserror = "2.0"
+anyhow = "1.0"
+
+# Utilities
+dirs = "6.0"
+rand = "0.8"
+rayon = "1.10"
+
+# Parsing
+chumsky = "0.9"
+ariadne = "0.4"
+
+# RPC
+nng = "1.0"
+
+# Cloud storage
+object_store = { version = "0.11", features = ["aws"] }
+url = "2.5"
+futures = "0.3"
+reqwest = { version = "0.12", features = ["json"] }
+
+# Internal crates
+sig_types = { path = "crates/sig_types" }
+sig_cache = { path = "crates/sig_cache" }
+sig_compiler = { path = "crates/sig_compiler" }
+sig_runtime = { path = "crates/sig_runtime" }
