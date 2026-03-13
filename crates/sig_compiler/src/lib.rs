@@ -138,8 +138,8 @@ impl Compiler {
                 source_hash: source_hash.to_string(),
                 compiled_at: std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap()
-                    .as_secs(),
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0),
                 compiler_version: env!("CARGO_PKG_VERSION").to_string(),
                 parameters,
                 data_sources,

@@ -1,9 +1,29 @@
 //! Execution engine for IR graphs
 
 use polars::prelude::*;
-use sig_types::{Ir, IrNode, Operator, Result, SigcError};
+use sig_types::{Ir, IrNode, Operator, OperatorError, Result, SigcError};
 use std::collections::HashMap;
 use crate::kernels;
+
+/// Helper to check input count and return structured error
+fn check_inputs(op: &str, node_id: u64, inputs: &[Series], expected: usize) -> Result<()> {
+    if inputs.len() != expected {
+        return Err(SigcError::Operator(OperatorError::input_mismatch(
+            op, node_id as usize, expected, inputs.len()
+        )));
+    }
+    Ok(())
+}
+
+/// Helper to check at least one input
+fn check_has_input(op: &str, node_id: u64, inputs: &[Series]) -> Result<()> {
+    if inputs.is_empty() {
+        return Err(SigcError::Operator(OperatorError::input_mismatch(
+            op, node_id as usize, 1, 0
+        )));
+    }
+    Ok(())
+}
 
 /// Execution engine that evaluates IR graphs
 pub struct Engine {
@@ -74,48 +94,36 @@ impl Engine {
 
         match &node.operator {
             Operator::Add => {
-                if inputs.len() != 2 {
-                    return Err(SigcError::Runtime("Add requires 2 inputs".into()));
-                }
+                check_inputs("Add", node.id, &inputs, 2)?;
                 (&inputs[0] + &inputs[1])
                     .map_err(|e| SigcError::Runtime(format!("Add failed: {}", e)))
             }
 
             Operator::Sub => {
-                if inputs.len() != 2 {
-                    return Err(SigcError::Runtime("Sub requires 2 inputs".into()));
-                }
+                check_inputs("Sub", node.id, &inputs, 2)?;
                 (&inputs[0] - &inputs[1])
                     .map_err(|e| SigcError::Runtime(format!("Sub failed: {}", e)))
             }
 
             Operator::Mul => {
-                if inputs.len() != 2 {
-                    return Err(SigcError::Runtime("Mul requires 2 inputs".into()));
-                }
+                check_inputs("Mul", node.id, &inputs, 2)?;
                 (&inputs[0] * &inputs[1])
                     .map_err(|e| SigcError::Runtime(format!("Mul failed: {}", e)))
             }
 
             Operator::Div => {
-                if inputs.len() != 2 {
-                    return Err(SigcError::Runtime("Div requires 2 inputs".into()));
-                }
+                check_inputs("Div", node.id, &inputs, 2)?;
                 (&inputs[0] / &inputs[1])
                     .map_err(|e| SigcError::Runtime(format!("Div failed: {}", e)))
             }
 
             Operator::Abs => {
-                if inputs.is_empty() {
-                    return Err(SigcError::Runtime("Abs requires 1 input".into()));
-                }
+                check_has_input("Abs", node.id, &inputs)?;
                 kernels::abs(&inputs[0])
             }
 
             Operator::Sign => {
-                if inputs.is_empty() {
-                    return Err(SigcError::Runtime("Sign requires 1 input".into()));
-                }
+                check_has_input("Sign", node.id, &inputs)?;
                 kernels::sign(&inputs[0])
             }
 

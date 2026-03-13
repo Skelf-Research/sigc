@@ -29,19 +29,27 @@ impl Backtester {
         // Calculate returns from prices
         let returns = self.calculate_returns(prices)?;
 
-        // Calculate portfolio returns
-        let port_returns = self.calculate_portfolio_returns(weights, &returns)?;
+        // Calculate portfolio returns and turnover
+        let (port_returns, turnover) = self.calculate_portfolio_returns(weights, &returns)?;
+
+        // Extract returns series as Vec
+        let returns_series: Vec<f64> = port_returns.f64()
+            .map(|ca| ca.into_iter().map(|v| v.unwrap_or(0.0)).collect())
+            .unwrap_or_default();
 
         // Calculate metrics
-        let metrics = self.calculate_metrics(&port_returns)?;
+        let metrics = self.calculate_metrics(&port_returns, turnover)?;
 
         Ok(BacktestReport {
             plan_hash: String::new(),
             executed_at: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_secs(),
+                .map(|d| d.as_secs())
+                .unwrap_or(0),
             metrics,
+            positions: None,  // TODO: Populate from weights
+            returns_series,
+            benchmark_metrics: None,
         })
     }
 
@@ -70,44 +78,88 @@ impl Backtester {
         &self,
         weights: &DataFrame,
         returns: &DataFrame,
-    ) -> Result<Series> {
-        // Simplified: equal weighted for now
-        let n_assets = returns.width() - 1; // Exclude date column
-        if n_assets == 0 {
-            return Ok(Series::new("port_returns".into(), vec![0.0f64; returns.height()]));
+    ) -> Result<(Series, f64)> {
+        let n_rows = returns.height();
+        if n_rows == 0 {
+            return Ok((Series::new("port_returns".into(), vec![0.0f64]), 0.0));
         }
 
-        let mut port_returns = vec![0.0f64; returns.height()];
+        let mut port_returns = vec![0.0f64; n_rows];
+        let mut total_turnover = 0.0;
+        let mut prev_weights: Option<Vec<f64>> = None;
 
-        for col in returns.get_columns() {
-            if col.name().as_str() == "date" {
-                continue;
+        // Get asset names from weights (excluding date)
+        let weight_cols: Vec<String> = weights.get_column_names()
+            .iter()
+            .filter(|&name| *name != "date")
+            .map(|s| s.to_string())
+            .collect();
+
+        for t in 0..n_rows {
+            let mut period_return = 0.0;
+            let mut current_weights = Vec::new();
+
+            for col_name in &weight_cols {
+                // Get weight for this asset at time t
+                let weight = if let Ok(w_col) = weights.column(col_name) {
+                    w_col.f64()
+                        .ok()
+                        .and_then(|ca| ca.get(t))
+                        .unwrap_or(0.0)
+                } else {
+                    0.0
+                };
+                current_weights.push(weight);
+
+                // Get return for this asset at time t
+                let ret = if let Ok(r_col) = returns.column(col_name) {
+                    r_col.f64()
+                        .ok()
+                        .and_then(|ca| ca.get(t))
+                        .unwrap_or(0.0)
+                } else {
+                    0.0
+                };
+
+                // Weighted return
+                period_return += weight * ret;
             }
 
-            let col_f64 = col.f64()
-                .map_err(|e| SigcError::Runtime(format!("Cast failed: {}", e)))?;
+            // Calculate turnover (sum of absolute weight changes)
+            if let Some(ref prev) = prev_weights {
+                let turnover: f64 = current_weights.iter()
+                    .zip(prev.iter())
+                    .map(|(curr, prev)| (curr - prev).abs())
+                    .sum();
+                total_turnover += turnover;
 
-            for (i, val) in col_f64.into_iter().enumerate() {
-                if let Some(v) = val {
-                    port_returns[i] += v / n_assets as f64;
-                }
+                // Apply transaction costs based on turnover
+                let cost = turnover * self.cost_bps / 10000.0;
+                period_return -= cost;
             }
+
+            port_returns[t] = period_return;
+            prev_weights = Some(current_weights);
         }
 
-        // Apply transaction costs
-        let turnover = 0.1; // Assumed turnover per period
-        let cost_per_period = turnover * self.cost_bps / 10000.0;
+        // Annualize turnover (assuming daily data)
+        let annualized_turnover = if n_rows > 1 {
+            total_turnover / n_rows as f64 * 252.0
+        } else {
+            0.0
+        };
 
-        for ret in &mut port_returns {
-            *ret -= cost_per_period;
-        }
-
-        Ok(Series::new("port_returns".into(), port_returns))
+        Ok((Series::new("port_returns".into(), port_returns), annualized_turnover))
     }
 
-    fn calculate_metrics(&self, returns: &Series) -> Result<BacktestMetrics> {
+    fn calculate_metrics(&self, returns: &Series, turnover: f64) -> Result<BacktestMetrics> {
         let returns_f64 = returns.f64()
             .map_err(|e| SigcError::Runtime(format!("Cast failed: {}", e)))?;
+
+        // Collect returns into vec for multiple passes
+        let returns_vec: Vec<f64> = returns_f64.into_iter()
+            .map(|v| v.unwrap_or(0.0))
+            .collect();
 
         // Total return (cumulative)
         let mut cum_return: f64 = 1.0;
@@ -115,9 +167,13 @@ impl Backtester {
         let mut max_drawdown: f64 = 0.0;
         let mut sum = 0.0;
         let mut sum_sq = 0.0;
-        let mut count = 0;
+        let mut downside_sum_sq = 0.0;
+        let mut wins = 0;
+        let mut losses = 0;
+        let mut win_total = 0.0;
+        let mut loss_total = 0.0;
 
-        for val in returns_f64.into_iter().flatten() {
+        for &val in &returns_vec {
             cum_return *= 1.0 + val;
             max_cum = max_cum.max(cum_return);
             let drawdown = 1.0 - cum_return / max_cum;
@@ -125,9 +181,19 @@ impl Backtester {
 
             sum += val;
             sum_sq += val * val;
-            count += 1;
+
+            // Downside deviation (for Sortino)
+            if val < 0.0 {
+                downside_sum_sq += val * val;
+                losses += 1;
+                loss_total += val.abs();
+            } else if val > 0.0 {
+                wins += 1;
+                win_total += val;
+            }
         }
 
+        let count = returns_vec.len();
         let total_return = cum_return - 1.0;
 
         // Annualized metrics (assuming daily data, 252 trading days)
@@ -153,12 +219,51 @@ impl Backtester {
             0.0
         };
 
+        // Sortino ratio (downside deviation)
+        let downside_std = if count > 0 {
+            (downside_sum_sq / count as f64).sqrt()
+        } else {
+            0.0
+        };
+        let sortino_ratio = if downside_std > 0.0 {
+            mean / downside_std * periods_per_year.sqrt()
+        } else {
+            0.0
+        };
+
+        // Calmar ratio (return / max drawdown)
+        let calmar_ratio = if max_drawdown > 0.0 {
+            annualized_return / max_drawdown
+        } else {
+            0.0
+        };
+
+        // Win rate
+        let win_rate = if count > 0 {
+            wins as f64 / count as f64
+        } else {
+            0.0
+        };
+
+        // Profit factor (avg win / avg loss)
+        let avg_win = if wins > 0 { win_total / wins as f64 } else { 0.0 };
+        let avg_loss = if losses > 0 { loss_total / losses as f64 } else { 0.0 };
+        let profit_factor = if avg_loss > 0.0 {
+            avg_win / avg_loss
+        } else {
+            0.0
+        };
+
         Ok(BacktestMetrics {
             total_return,
             annualized_return,
             sharpe_ratio,
             max_drawdown,
-            turnover: 0.1, // Placeholder
+            turnover,
+            sortino_ratio,
+            calmar_ratio,
+            win_rate,
+            profit_factor,
         })
     }
 }
@@ -172,15 +277,15 @@ impl Default for Backtester {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::data::DataLoader;
 
     #[test]
     fn test_backtest_metrics() {
         let returns = Series::new("returns".into(), vec![0.01, -0.005, 0.02, -0.01, 0.015]);
         let backtester = Backtester::new();
-        let metrics = backtester.calculate_metrics(&returns).unwrap();
+        let metrics = backtester.calculate_metrics(&returns, 2.5).unwrap();
 
         assert!(metrics.total_return > 0.0);
         assert!(metrics.max_drawdown >= 0.0);
+        assert_eq!(metrics.turnover, 2.5);
     }
 }

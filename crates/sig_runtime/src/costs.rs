@@ -77,7 +77,7 @@ impl CostModel {
         CostModel {
             commission_bps: 5.0,
             slippage_bps: 5.0,
-            impact_model: ImpactModel::Linear { coefficient: 0.1 },
+            impact_model: ImpactModel::Linear { coefficient: 0.5 },
             borrow_cost_annual: 0.02,
             min_trade_size: 0.0,
         }

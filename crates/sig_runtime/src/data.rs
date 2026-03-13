@@ -124,7 +124,8 @@ impl DataLoader {
     fn load_s3(&self, path: &str, format: DataFormat) -> Result<DataFrame> {
         self.runtime.block_on(async {
             // Parse S3 URL: s3://bucket/key
-            let path = path.strip_prefix("s3://").unwrap();
+            let path = path.strip_prefix("s3://")
+                .ok_or_else(|| SigcError::Runtime("Invalid S3 URL format".to_string()))?;
             let (bucket, key) = path.split_once('/').ok_or_else(|| {
                 SigcError::Runtime("Invalid S3 path format".to_string())
             })?;

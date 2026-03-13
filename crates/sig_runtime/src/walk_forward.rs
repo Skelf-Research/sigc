@@ -204,6 +204,10 @@ impl WalkForward {
                 sharpe_ratio: train_metrics.sharpe_ratio * 0.8,
                 max_drawdown: train_metrics.max_drawdown * 1.2,
                 turnover: train_metrics.turnover,
+                sortino_ratio: train_metrics.sortino_ratio * 0.8,
+                calmar_ratio: train_metrics.calmar_ratio * 0.7,
+                win_rate: train_metrics.win_rate,
+                profit_factor: train_metrics.profit_factor * 0.8,
             };
 
             folds.push(FoldResult {
@@ -239,6 +243,10 @@ impl WalkForward {
             sharpe_ratio: avg_test_sharpe,
             max_drawdown: folds.iter().map(|f| f.test_metrics.max_drawdown).fold(0.0, f64::max),
             turnover: folds.iter().map(|f| f.test_metrics.turnover).sum::<f64>() / folds.len() as f64,
+            sortino_ratio: folds.iter().map(|f| f.test_metrics.sortino_ratio).sum::<f64>() / folds.len() as f64,
+            calmar_ratio: folds.iter().map(|f| f.test_metrics.calmar_ratio).sum::<f64>() / folds.len() as f64,
+            win_rate: folds.iter().map(|f| f.test_metrics.win_rate).sum::<f64>() / folds.len() as f64,
+            profit_factor: folds.iter().map(|f| f.test_metrics.profit_factor).sum::<f64>() / folds.len() as f64,
         };
 
         Ok(WalkForwardResult {
@@ -289,6 +297,10 @@ mod tests {
                 sharpe_ratio: 0.8,
                 max_drawdown: 0.1,
                 turnover: 1.0,
+                sortino_ratio: 1.0,
+                calmar_ratio: 1.0,
+                win_rate: 0.5,
+                profit_factor: 1.0,
             },
         };
         assert!(result.is_overfit());

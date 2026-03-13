@@ -121,23 +121,184 @@ impl SqlConnector {
 
 impl Connector for SqlConnector {
     fn load(&self, query: &str) -> Result<DataFrame> {
-        // Note: This is a stub implementation
-        // Full implementation would use sqlx or similar
-        let _conn_str = self.connection_string();
-
-        Err(SigcError::Runtime(format!(
-            "SQL connector '{}' not yet implemented. Query: {}",
-            self.name, query
-        )))
+        match &self.config {
+            ConnectorConfig::Postgres { host, port, database, user, password } => {
+                self.load_postgres(host, *port, database, user, password, query)
+            }
+            ConnectorConfig::Snowflake { .. } => {
+                // Snowflake requires their specific driver
+                Err(SigcError::Runtime(
+                    "Snowflake connector requires snowflake-connector. Use ODBC or REST API.".into()
+                ))
+            }
+            _ => Err(SigcError::Runtime("Invalid config for SQL connector".into())),
+        }
     }
 
     fn is_available(&self) -> bool {
-        // Would check actual connection
-        false
+        match &self.config {
+            ConnectorConfig::Postgres { host, port, database, user, password } => {
+                let conn_str = format!(
+                    "host={} port={} dbname={} user={} password={}",
+                    host, port, database, user, password
+                );
+                postgres::Client::connect(&conn_str, postgres::NoTls).is_ok()
+            }
+            _ => false,
+        }
     }
 
     fn name(&self) -> &str {
         &self.name
+    }
+}
+
+impl SqlConnector {
+    /// Load data from PostgreSQL
+    fn load_postgres(
+        &self,
+        host: &str,
+        port: u16,
+        database: &str,
+        user: &str,
+        password: &str,
+        query: &str,
+    ) -> Result<DataFrame> {
+        let conn_str = format!(
+            "host={} port={} dbname={} user={} password={}",
+            host, port, database, user, password
+        );
+
+        let mut client = postgres::Client::connect(&conn_str, postgres::NoTls)
+            .map_err(|e| SigcError::Runtime(format!("Failed to connect to Postgres: {}", e)))?;
+
+        let rows = client.query(query, &[])
+            .map_err(|e| SigcError::Runtime(format!("Query failed: {}", e)))?;
+
+        if rows.is_empty() {
+            return Err(SigcError::Runtime("Query returned no rows".into()));
+        }
+
+        // Get column info from first row
+        let columns = rows[0].columns();
+        let mut series_data: Vec<(String, Vec<f64>)> = Vec::new();
+        let mut string_data: Vec<(String, Vec<String>)> = Vec::new();
+
+        // Initialize columns
+        for col in columns {
+            let name = col.name().to_string();
+            let type_name = col.type_().name();
+
+            match type_name {
+                "float4" | "float8" | "numeric" | "int2" | "int4" | "int8" => {
+                    series_data.push((name, Vec::with_capacity(rows.len())));
+                }
+                "text" | "varchar" | "date" | "timestamp" | "timestamptz" => {
+                    string_data.push((name, Vec::with_capacity(rows.len())));
+                }
+                _ => {
+                    // Try as string
+                    string_data.push((name, Vec::with_capacity(rows.len())));
+                }
+            }
+        }
+
+        // Extract data from rows
+        for row in &rows {
+            let mut float_idx = 0;
+            let mut string_idx = 0;
+
+            for (i, col) in columns.iter().enumerate() {
+                let type_name = col.type_().name();
+
+                match type_name {
+                    "float4" => {
+                        let val: Option<f32> = row.get(i);
+                        series_data[float_idx].1.push(val.map(|v| v as f64).unwrap_or(f64::NAN));
+                        float_idx += 1;
+                    }
+                    "float8" | "numeric" => {
+                        let val: Option<f64> = row.get(i);
+                        series_data[float_idx].1.push(val.unwrap_or(f64::NAN));
+                        float_idx += 1;
+                    }
+                    "int2" => {
+                        let val: Option<i16> = row.get(i);
+                        series_data[float_idx].1.push(val.unwrap_or(0) as f64);
+                        float_idx += 1;
+                    }
+                    "int4" => {
+                        let val: Option<i32> = row.get(i);
+                        series_data[float_idx].1.push(val.unwrap_or(0) as f64);
+                        float_idx += 1;
+                    }
+                    "int8" => {
+                        let val: Option<i64> = row.get(i);
+                        series_data[float_idx].1.push(val.unwrap_or(0) as f64);
+                        float_idx += 1;
+                    }
+                    _ => {
+                        // Handle dates, timestamps, and strings as strings
+                        let val: Option<String> = row.try_get(i).ok().flatten();
+                        string_data[string_idx].1.push(val.unwrap_or_default());
+                        string_idx += 1;
+                    }
+                }
+            }
+        }
+
+        // Build DataFrame
+        let mut df_columns: Vec<Column> = Vec::new();
+
+        for (name, values) in series_data {
+            df_columns.push(Column::new(name.into(), values));
+        }
+
+        for (name, values) in string_data {
+            df_columns.push(Column::new(name.into(), values));
+        }
+
+        DataFrame::new(df_columns)
+            .map_err(|e| SigcError::Runtime(format!("Failed to create DataFrame: {}", e)))
+    }
+
+    /// Execute a query that returns a count
+    pub fn query_count(&self, query: &str) -> Result<i64> {
+        match &self.config {
+            ConnectorConfig::Postgres { host, port, database, user, password } => {
+                let conn_str = format!(
+                    "host={} port={} dbname={} user={} password={}",
+                    host, port, database, user, password
+                );
+
+                let mut client = postgres::Client::connect(&conn_str, postgres::NoTls)
+                    .map_err(|e| SigcError::Runtime(format!("Connection failed: {}", e)))?;
+
+                let row = client.query_one(query, &[])
+                    .map_err(|e| SigcError::Runtime(format!("Query failed: {}", e)))?;
+
+                let value: i64 = row.get(0);
+                Ok(value)
+            }
+            _ => Err(SigcError::Runtime("Not a Postgres connector".into())),
+        }
+    }
+
+    /// List available tables
+    pub fn list_tables(&self) -> Result<Vec<String>> {
+        let query = "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'";
+        let df = self.load(query)?;
+
+        let col = df.column("table_name")
+            .map_err(|e| SigcError::Runtime(format!("Column error: {}", e)))?;
+
+        let tables: Vec<String> = col.str()
+            .map_err(|e| SigcError::Runtime(format!("Cast error: {}", e)))?
+            .into_iter()
+            .filter_map(|s| s.map(|s| s.to_string()))
+            .collect();
+
+        Ok(tables)
     }
 }
 

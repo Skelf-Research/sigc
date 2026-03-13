@@ -189,6 +189,13 @@ pub struct BacktestReport {
     pub plan_hash: String,
     pub executed_at: u64,
     pub metrics: BacktestMetrics,
+    /// Daily positions/weights per asset (optional, for detailed analysis)
+    #[with(rkyv::with::Skip)]
+    pub positions: Option<PositionHistory>,
+    /// Daily portfolio returns series
+    pub returns_series: Vec<f64>,
+    /// Benchmark-relative metrics (if benchmark provided)
+    pub benchmark_metrics: Option<BenchmarkMetrics>,
 }
 
 /// Performance metrics from a backtest
@@ -199,6 +206,111 @@ pub struct BacktestMetrics {
     pub sharpe_ratio: f64,
     pub max_drawdown: f64,
     pub turnover: f64,
+    /// Sortino ratio (downside risk adjusted)
+    pub sortino_ratio: f64,
+    /// Calmar ratio (return / max drawdown)
+    pub calmar_ratio: f64,
+    /// Win rate (% of positive days)
+    pub win_rate: f64,
+    /// Average win / average loss
+    pub profit_factor: f64,
+}
+
+/// Daily position history for export and analysis
+#[derive(Debug, Clone)]
+pub struct PositionHistory {
+    /// Dates for each row
+    pub dates: Vec<String>,
+    /// Asset names (column headers)
+    pub assets: Vec<String>,
+    /// Weights matrix: weights[date_idx][asset_idx]
+    pub weights: Vec<Vec<f64>>,
+    /// Daily returns matrix: returns[date_idx][asset_idx]
+    pub asset_returns: Vec<Vec<f64>>,
+}
+
+impl PositionHistory {
+    /// Create empty position history
+    pub fn new(assets: Vec<String>) -> Self {
+        PositionHistory {
+            dates: Vec::new(),
+            assets,
+            weights: Vec::new(),
+            asset_returns: Vec::new(),
+        }
+    }
+
+    /// Add a day's positions
+    pub fn add_day(&mut self, date: String, weights: Vec<f64>, returns: Vec<f64>) {
+        self.dates.push(date);
+        self.weights.push(weights);
+        self.asset_returns.push(returns);
+    }
+
+    /// Export to CSV format
+    pub fn to_csv(&self) -> String {
+        let mut csv = String::new();
+
+        // Header
+        csv.push_str("date");
+        for asset in &self.assets {
+            csv.push_str(&format!(",{}_weight,{}_return", asset, asset));
+        }
+        csv.push('\n');
+
+        // Data rows
+        for (i, date) in self.dates.iter().enumerate() {
+            csv.push_str(date);
+            for j in 0..self.assets.len() {
+                let weight = self.weights.get(i).and_then(|w| w.get(j)).unwrap_or(&0.0);
+                let ret = self.asset_returns.get(i).and_then(|r| r.get(j)).unwrap_or(&0.0);
+                csv.push_str(&format!(",{:.6},{:.6}", weight, ret));
+            }
+            csv.push('\n');
+        }
+
+        csv
+    }
+
+    /// Get weights for a specific date
+    pub fn weights_on(&self, date: &str) -> Option<&Vec<f64>> {
+        self.dates.iter()
+            .position(|d| d == date)
+            .and_then(|i| self.weights.get(i))
+    }
+}
+
+/// Benchmark-relative performance metrics
+#[derive(Debug, Clone, Archive, Serialize, Deserialize)]
+pub struct BenchmarkMetrics {
+    /// Jensen's alpha (excess return over CAPM)
+    pub alpha: f64,
+    /// Beta to benchmark
+    pub beta: f64,
+    /// Information ratio (active return / tracking error)
+    pub information_ratio: f64,
+    /// Tracking error (std of active returns)
+    pub tracking_error: f64,
+    /// Correlation with benchmark
+    pub correlation: f64,
+    /// Up capture ratio
+    pub up_capture: f64,
+    /// Down capture ratio
+    pub down_capture: f64,
+}
+
+impl Default for BenchmarkMetrics {
+    fn default() -> Self {
+        BenchmarkMetrics {
+            alpha: 0.0,
+            beta: 1.0,
+            information_ratio: 0.0,
+            tracking_error: 0.0,
+            correlation: 0.0,
+            up_capture: 1.0,
+            down_capture: 1.0,
+        }
+    }
 }
 
 /// Errors that can occur in sigc
@@ -218,6 +330,111 @@ pub enum SigcError {
 
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
+
+    #[error("{}", .0.format())]
+    Operator(OperatorError),
+
+    #[error("{}", .0.format())]
+    Data(DataError),
+}
+
+/// Structured error for operator execution failures
+#[derive(Debug, Clone)]
+pub struct OperatorError {
+    pub operator: String,
+    pub node_id: usize,
+    pub message: String,
+    pub expected_inputs: Option<usize>,
+    pub actual_inputs: Option<usize>,
+    pub suggestion: Option<String>,
+}
+
+impl OperatorError {
+    pub fn new(operator: &str, node_id: usize, message: &str) -> Self {
+        Self {
+            operator: operator.to_string(),
+            node_id,
+            message: message.to_string(),
+            expected_inputs: None,
+            actual_inputs: None,
+            suggestion: None,
+        }
+    }
+
+    pub fn input_mismatch(operator: &str, node_id: usize, expected: usize, actual: usize) -> Self {
+        let suggestion = if actual == 0 {
+            Some(format!("Check that '{}' has input connected in your signal definition", operator.to_lowercase()))
+        } else if actual < expected {
+            Some(format!("'{}' requires {} inputs but only {} provided. Check your expression.", operator, expected, actual))
+        } else {
+            Some(format!("'{}' requires {} inputs but {} provided. Remove extra arguments.", operator, expected, actual))
+        };
+
+        Self {
+            operator: operator.to_string(),
+            node_id,
+            message: format!("Input count mismatch for '{}'", operator),
+            expected_inputs: Some(expected),
+            actual_inputs: Some(actual),
+            suggestion,
+        }
+    }
+
+    pub fn with_suggestion(mut self, suggestion: &str) -> Self {
+        self.suggestion = Some(suggestion.to_string());
+        self
+    }
+
+    pub fn format(&self) -> String {
+        let mut result = format!("Operator '{}' error (node #{}): {}",
+            self.operator, self.node_id, self.message);
+
+        if let (Some(expected), Some(actual)) = (self.expected_inputs, self.actual_inputs) {
+            result.push_str(&format!("\n  Expected {} input(s), got {}", expected, actual));
+        }
+
+        if let Some(ref suggestion) = self.suggestion {
+            result.push_str(&format!("\n  Suggestion: {}", suggestion));
+        }
+
+        result
+    }
+}
+
+/// Structured error for data loading/processing failures
+#[derive(Debug, Clone)]
+pub struct DataError {
+    pub source: String,
+    pub operation: String,
+    pub message: String,
+    pub suggestion: Option<String>,
+}
+
+impl DataError {
+    pub fn new(source: &str, operation: &str, message: &str) -> Self {
+        Self {
+            source: source.to_string(),
+            operation: operation.to_string(),
+            message: message.to_string(),
+            suggestion: None,
+        }
+    }
+
+    pub fn with_suggestion(mut self, suggestion: &str) -> Self {
+        self.suggestion = Some(suggestion.to_string());
+        self
+    }
+
+    pub fn format(&self) -> String {
+        let mut result = format!("Data error in '{}' ({}): {}",
+            self.source, self.operation, self.message);
+
+        if let Some(ref suggestion) = self.suggestion {
+            result.push_str(&format!("\n  Suggestion: {}", suggestion));
+        }
+
+        result
+    }
 }
 
 /// Format a source error with line context

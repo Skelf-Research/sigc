@@ -349,7 +349,14 @@ mod tests {
                 sharpe_ratio: 1.5,
                 max_drawdown: 0.08,
                 turnover: 2.4,
+                sortino_ratio: 2.0,
+                calmar_ratio: 1.5,
+                win_rate: 0.55,
+                profit_factor: 1.3,
             },
+            positions: None,
+            returns_series: vec![0.01, -0.005, 0.02],
+            benchmark_metrics: None,
         };
 
         let html = visualizer.generate_html(&report, &sample_returns());

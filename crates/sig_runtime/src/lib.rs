@@ -2,14 +2,20 @@
 //!
 //! Executes IR and manages data ingestion.
 
+pub mod attribution;
+pub mod audit;
 pub mod backtest;
+pub mod benchmark;
 pub mod connectors;
+pub mod constraints;
 pub mod costs;
 pub mod data;
 pub mod engine;
 pub mod kernels;
+pub mod metrics;
 pub mod optimize;
 pub mod panel;
+pub mod parallel;
 pub mod reporting;
 pub mod universe;
 pub mod viz;
@@ -19,17 +25,23 @@ use polars::prelude::*;
 use sig_types::{BacktestPlan, BacktestReport, Ir, Result};
 use std::collections::HashMap;
 
+pub use attribution::{AttributionAnalyzer, AttributionResult, SectorMapping, BrinsonResult};
 pub use backtest::Backtester;
 pub use connectors::{Connector, SqlConnector, CloudConnector, ConnectorRegistry, ConnectorEnv};
+pub use constraints::{ConstraintSet, ConstraintEnforcer, PositionConstraint, PortfolioConstraint, SectorConstraint, TurnoverConstraint};
 pub use costs::{CostModel, ImpactModel, TradeCost, PortfolioCostCalculator, PortfolioCost};
 pub use data::{DataFormat, DataLoader, DataManager, DataSource, DateRange};
 pub use engine::Engine;
 pub use optimize::{GridSearch, OptimizationResult};
 pub use panel::Panel;
+pub use parallel::{ParallelExecutor, ParallelConfig, AssetResult, execute_parallel};
 pub use reporting::{Attribution, ReportExporter};
 pub use universe::{Universe, UniverseManager, DynamicUniverse, MarketCapCategory};
 pub use viz::{ChartGenerator, ReportVisualizer};
 pub use walk_forward::{WalkForward, WalkForwardConfig, WalkForwardResult, FoldResult};
+pub use audit::{AuditLogger, AuditEvent, AuditEntry, audit_log, init_audit_logger};
+pub use benchmark::BenchmarkAnalyzer;
+pub use metrics::{MetricsRegistry, Timer, metrics};
 
 /// Runtime execution context
 pub struct Runtime {
@@ -67,14 +79,30 @@ impl Runtime {
             let source = &plan.ir.metadata.data_sources[0];
             tracing::info!("Loading data from: {}", source.path);
 
-            match loader.load(&source.path) {
+            // Create date range from plan
+            let date_range = DateRange {
+                start: if plan.start_date.is_empty() { None } else { Some(plan.start_date.clone()) },
+                end: if plan.end_date.is_empty() { None } else { Some(plan.end_date.clone()) },
+            };
+
+            match loader.load_with_dates(&source.path, "date", &date_range) {
                 Ok(df) => {
-                    tracing::info!("Loaded {} rows x {} columns from {}", df.height(), df.width(), source.path);
+                    tracing::info!("Loaded {} rows x {} columns from {} (filtered by date)", df.height(), df.width(), source.path);
                     df
                 }
                 Err(e) => {
-                    tracing::warn!("Failed to load {}: {}, using sample data", source.path, e);
-                    DataLoader::sample_prices(252, 10)?
+                    // Fall back to loading without date filter
+                    tracing::warn!("Failed to load with dates: {}, trying without filter", e);
+                    match loader.load(&source.path) {
+                        Ok(df) => {
+                            tracing::info!("Loaded {} rows x {} columns from {}", df.height(), df.width(), source.path);
+                            df
+                        }
+                        Err(e2) => {
+                            tracing::warn!("Failed to load {}: {}, using sample data", source.path, e2);
+                            DataLoader::sample_prices(252, 10)?
+                        }
+                    }
                 }
             }
         } else {
@@ -85,13 +113,6 @@ impl Runtime {
         let n_outputs = plan.ir.outputs.len();
         tracing::info!("IR has {} outputs, {} nodes", n_outputs, plan.ir.nodes.len());
 
-        // Execute IR graph to produce weights
-        let n_assets = prices.width() - 1; // Exclude date column
-        let n_rows = prices.height();
-
-        // Convert price columns to input series for engine
-        let mut inputs: HashMap<String, polars::prelude::Series> = HashMap::new();
-
         // Get all price columns (exclude date)
         let col_names: Vec<String> = prices.get_column_names()
             .iter()
@@ -99,58 +120,97 @@ impl Runtime {
             .map(|s| s.to_string())
             .collect();
 
-        // Create a combined price series (average across assets for simplicity)
-        // In a full implementation, this would handle multi-asset data properly
-        let mut combined_prices = vec![0.0f64; n_rows];
-        for col_name in &col_names {
-            if let Ok(col) = prices.column(col_name) {
-                if let Ok(values) = col.f64() {
-                    for (i, val) in values.into_iter().enumerate() {
-                        combined_prices[i] += val.unwrap_or(0.0) / col_names.len() as f64;
-                    }
-                }
-            }
-        }
+        let n_assets = col_names.len();
+        let n_rows = prices.height();
 
-        // Register input data - use first data source name or "prices"
+        // Get input name from data source
         let input_name = plan.ir.metadata.data_sources
             .first()
             .map(|d| d.name.clone())
             .unwrap_or_else(|| "prices".to_string());
 
-        inputs.insert(input_name, polars::prelude::Series::new("prices".into(), combined_prices));
+        // Execute IR for each asset to get per-asset signals
+        let mut asset_signals: Vec<Vec<f64>> = Vec::with_capacity(n_assets);
 
-        // Execute IR graph
-        let outputs = self.engine.execute(&plan.ir, &inputs)?;
+        for col_name in &col_names {
+            let col = prices.column(col_name)
+                .map_err(|e| sig_types::SigcError::Runtime(format!("Column not found: {}", e)))?;
 
-        // Convert output series to weight DataFrame
-        let weights = if !outputs.is_empty() {
-            let signal = &outputs[0];
-            let signal_values: Vec<f64> = signal.f64()
-                .map(|ca| ca.into_iter().map(|v| v.unwrap_or(0.0)).collect())
-                .unwrap_or_else(|_| vec![0.0; n_rows]);
+            let values: Vec<f64> = col.f64()
+                .map_err(|e| sig_types::SigcError::Runtime(format!("Cast failed: {}", e)))?
+                .into_iter()
+                .map(|v| v.unwrap_or(f64::NAN))
+                .collect();
 
-            // Distribute signal across assets (equal allocation per asset)
-            let mut weight_cols: Vec<Column> = vec![];
-            for i in 0..n_assets {
-                let weights_vec: Vec<f64> = signal_values.iter()
-                    .map(|&s| s / n_assets as f64)
-                    .collect();
-                weight_cols.push(Column::new(format!("w_{}", i).into(), weights_vec));
+            let mut inputs: HashMap<String, Series> = HashMap::new();
+            inputs.insert(input_name.clone(), Series::new(col_name.clone().into(), values));
+
+            // Execute IR graph for this asset
+            let outputs = self.engine.execute(&plan.ir, &inputs)?;
+
+            let signal = if !outputs.is_empty() {
+                outputs[0].f64()
+                    .map(|ca| ca.into_iter().map(|v| v.unwrap_or(0.0)).collect())
+                    .unwrap_or_else(|_| vec![0.0; n_rows])
+            } else {
+                vec![0.0; n_rows]
+            };
+
+            asset_signals.push(signal);
+        }
+
+        // Convert signals to weights using cross-sectional ranking and long/short
+        let mut weight_cols: Vec<Column> = Vec::with_capacity(n_assets);
+
+        for t in 0..n_rows {
+            // Get cross-section of signals at time t
+            let mut xs: Vec<(usize, f64)> = asset_signals.iter()
+                .enumerate()
+                .map(|(i, signals)| (i, signals[t]))
+                .collect();
+
+            // Rank signals cross-sectionally
+            xs.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+
+            // Create long/short weights based on rank
+            let mut weights_t = vec![0.0; n_assets];
+            let top_n = (n_assets as f64 * 0.2).ceil() as usize;
+            let bottom_n = top_n;
+
+            // Short bottom ranked
+            for i in 0..bottom_n.min(n_assets) {
+                let asset_idx = xs[i].0;
+                weights_t[asset_idx] = -1.0 / bottom_n as f64;
             }
 
-            DataFrame::new(weight_cols).unwrap_or_else(|_| DataFrame::empty())
-        } else {
-            // Fallback to equal weights
-            tracing::warn!("No IR outputs, using equal weights");
-            let weight = 1.0 / n_assets as f64;
-            let mut weight_cols: Vec<Column> = vec![];
-            for i in 0..n_assets {
-                let weights_vec = vec![weight; n_rows];
-                weight_cols.push(Column::new(format!("w_{}", i).into(), weights_vec));
+            // Long top ranked
+            for i in (n_assets.saturating_sub(top_n))..n_assets {
+                let asset_idx = xs[i].0;
+                weights_t[asset_idx] = 1.0 / top_n as f64;
             }
-            DataFrame::new(weight_cols).unwrap_or_else(|_| DataFrame::empty())
-        };
+
+            // Store weights for this time period
+            if t == 0 {
+                for i in 0..n_assets {
+                    weight_cols.push(Column::new(col_names[i].clone().into(), vec![weights_t[i]]));
+                }
+            } else {
+                for i in 0..n_assets {
+                    let col = weight_cols[i].as_series()
+                        .ok_or_else(|| sig_types::SigcError::Runtime("Series conversion failed".to_string()))?;
+                    let mut values: Vec<f64> = col.f64()
+                        .map_err(|e| sig_types::SigcError::Runtime(format!("Cast to f64 failed: {}", e)))?
+                        .into_iter()
+                        .map(|v| v.unwrap_or(0.0))
+                        .collect();
+                    values.push(weights_t[i]);
+                    weight_cols[i] = Column::new(col_names[i].clone().into(), values);
+                }
+            }
+        }
+
+        let weights = DataFrame::new(weight_cols)
+            .map_err(|e| sig_types::SigcError::Runtime(format!("Failed to create weights: {}", e)))?;
 
         // Run backtest
         let report = self.backtester.run(&weights, &prices, plan)?;

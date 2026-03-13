@@ -61,7 +61,8 @@ impl Panel {
             .map(|asset| {
                 let col = self.data.column(asset)
                     .map_err(|e| SigcError::Runtime(format!("Column not found: {}", e)))?;
-                let series = col.as_series().unwrap();
+                let series = col.as_series()
+                    .ok_or_else(|| SigcError::Runtime("Failed to convert to series".to_string()))?;
                 let result = f(series)?;
                 Ok(result.into_column())
             })
@@ -169,9 +170,11 @@ impl Panel {
 
     /// Get a single asset's time series
     pub fn get_asset(&self, name: &str) -> Result<Series> {
-        self.data.column(name)
-            .map(|c| c.as_series().unwrap().clone())
-            .map_err(|e| SigcError::Runtime(format!("Asset not found: {}", e)))
+        let col = self.data.column(name)
+            .map_err(|e| SigcError::Runtime(format!("Asset not found: {}", e)))?;
+        col.as_series()
+            .map(|s| s.clone())
+            .ok_or_else(|| SigcError::Runtime("Failed to convert to series".to_string()))
     }
 
     /// Get cross-section at a specific time index

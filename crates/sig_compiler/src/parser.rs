@@ -84,7 +84,7 @@ fn number() -> impl Parser<char, f64, Error = Simple<char>> + Clone {
                 s.push('.');
                 s.extend(f);
             }
-            s.parse().unwrap()
+            s.parse().unwrap_or(0.0)
         })
 }
 

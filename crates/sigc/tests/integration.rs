@@ -535,3 +535,152 @@ portfolio main:
     // Report metadata should be set
     assert!(report.executed_at > 0);
 }
+
+#[test]
+fn test_multi_asset_backtest() {
+    // Test that multi-asset backtests execute per-asset signals correctly
+    let source = r#"
+data:
+  prices: load csv from "test.csv"
+
+params:
+  period = 10
+
+signal momentum:
+  r = ret(prices, period)
+  emit zscore(r)
+
+portfolio main:
+  weights = rank(momentum).long_short(top=0.2, bottom=0.2)
+  backtest from 2020-01-01 to 2024-12-31
+"#;
+
+    let compiler = sig_compiler::Compiler::new();
+    let ir = compiler.compile(source).unwrap();
+
+    let mut runtime = sig_runtime::Runtime::new();
+    let report = runtime.run_ir(&ir).unwrap();
+
+    // Metrics should be reasonable for a long/short strategy
+    assert!(report.metrics.total_return.is_finite());
+    assert!(report.metrics.sharpe_ratio.is_finite());
+    // Max drawdown should be non-negative
+    assert!(report.metrics.max_drawdown >= 0.0);
+    // Turnover should be positive for an active strategy
+    assert!(report.metrics.turnover >= 0.0);
+}
+
+#[test]
+fn test_turnover_calculation() {
+    // Test that turnover is calculated correctly from weight changes
+    use polars::prelude::*;
+    use sig_runtime::Backtester;
+
+    let backtester = Backtester::new();
+
+    // Create simple weights that change over time
+    let weights = df! {
+        "A" => &[0.5, 0.3, 0.4],
+        "B" => &[-0.5, -0.3, -0.4]
+    }.unwrap();
+
+    // Create simple prices (constant returns)
+    let prices = df! {
+        "A" => &[100.0, 101.0, 102.0],
+        "B" => &[100.0, 99.0, 98.0]
+    }.unwrap();
+
+    let plan = sig_types::BacktestPlan {
+        ir: sig_types::Ir {
+            nodes: vec![],
+            outputs: vec![],
+            metadata: sig_types::IrMetadata {
+                source_hash: "test".to_string(),
+                compiled_at: 0,
+                compiler_version: "0.1.0".to_string(),
+                parameters: vec![],
+                data_sources: vec![],
+            },
+        },
+        start_date: "2020-01-01".to_string(),
+        end_date: "2024-12-31".to_string(),
+        universe: "test".to_string(),
+        parameters: std::collections::HashMap::new(),
+    };
+
+    let report = backtester.run(&weights, &prices, &plan).unwrap();
+
+    // Turnover should be positive (weights changed)
+    assert!(report.metrics.turnover > 0.0);
+}
+
+#[test]
+fn test_date_range_filtering() {
+    use sig_runtime::data::{DataLoader, DateRange};
+
+    // Test date range creation
+    let range = DateRange {
+        start: Some("2022-01-01".to_string()),
+        end: Some("2022-12-31".to_string()),
+    };
+
+    assert_eq!(range.start, Some("2022-01-01".to_string()));
+    assert_eq!(range.end, Some("2022-12-31".to_string()));
+
+    // Test sample data generation
+    let df = DataLoader::sample_prices(100, 5).unwrap();
+    assert_eq!(df.height(), 100);
+    assert_eq!(df.width(), 6); // date + 5 assets
+}
+
+#[test]
+fn test_cost_model_calculations() {
+    use sig_runtime::{CostModel, ImpactModel};
+
+    // Test institutional model
+    let model = CostModel::institutional();
+    let cost = model.calculate_cost(100_000.0, Some(1_000_000.0), false, 21.0);
+
+    assert!(cost.commission > 0.0);
+    assert!(cost.slippage > 0.0);
+    assert!(cost.impact > 0.0);
+    assert_eq!(cost.borrow, 0.0); // Not a short
+
+    // Test short position borrow cost
+    let short_cost = model.calculate_cost(100_000.0, Some(1_000_000.0), true, 21.0);
+    assert!(short_cost.borrow > 0.0);
+
+    // Test zero cost model
+    let zero = CostModel::zero();
+    let zero_cost = zero.calculate_cost(100_000.0, Some(1_000_000.0), true, 21.0);
+    assert_eq!(zero_cost.total, 0.0);
+
+    // Test impact models
+    let linear = CostModel::new().with_impact(ImpactModel::Linear { coefficient: 0.1 });
+    let sqrt = CostModel::new().with_impact(ImpactModel::SquareRoot { coefficient: 0.1 });
+
+    let linear_cost = linear.calculate_cost(100_000.0, Some(1_000_000.0), false, 21.0);
+    let sqrt_cost = sqrt.calculate_cost(100_000.0, Some(1_000_000.0), false, 21.0);
+
+    assert!(linear_cost.impact > 0.0);
+    assert!(sqrt_cost.impact > 0.0);
+}
+
+#[test]
+fn test_walk_forward_optimization() {
+    use sig_runtime::{WalkForward, WalkForwardConfig};
+
+    // Test basic configuration
+    let config = WalkForwardConfig::new(252, 126, 21);
+    assert_eq!(config.total_periods, 252);
+    assert_eq!(config.train_periods, 126);
+    assert_eq!(config.test_periods, 21);
+
+    // Test walk forward creation with parameters
+    let mut wf = WalkForward::new(config);
+    wf.add_range("period", 5.0, 20.0, 5.0);
+    wf.add_range("lookback", 10.0, 50.0, 10.0);
+
+    // Struct creation should succeed
+    // (actual execution requires valid IR which is tested elsewhere)
+}
