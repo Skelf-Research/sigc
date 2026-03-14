@@ -1,0 +1,188 @@
+/* Custom styles for sigc documentation */
+
+/* Code block styling for .sig files */
+.highlight .language-sig {
+  background-color: var(--md-code-bg-color);
+}
+
+/* Custom admonition for strategy examples */
+.md-typeset .admonition.strategy,
+.md-typeset details.strategy {
+  border-color: #7c4dff;
+}
+
+.md-typeset .admonition.strategy > .admonition-title,
+.md-typeset details.strategy > summary {
+  background-color: rgba(124, 77, 255, 0.1);
+}
+
+.md-typeset .admonition.strategy > .admonition-title::before,
+.md-typeset details.strategy > summary::before {
+  background-color: #7c4dff;
+  -webkit-mask-image: var(--md-admonition-icon--example);
+  mask-image: var(--md-admonition-icon--example);
+}
+
+/* Operator table styling */
+.md-typeset table.operators {
+  font-size: 0.85rem;
+}
+
+.md-typeset table.operators th {
+  background-color: var(--md-primary-fg-color);
+  color: var(--md-primary-bg-color);
+}
+
+/* Metrics table styling */
+.md-typeset table.metrics td:nth-child(2) {
+  font-family: var(--md-code-font-family);
+  font-size: 0.85em;
+}
+
+/* Hero section on landing page */
+.hero {
+  text-align: center;
+  padding: 2rem 0;
+  margin-bottom: 2rem;
+}
+
+.hero h1 {
+  font-size: 2.5rem;
+  font-weight: 700;
+  margin-bottom: 0.5rem;
+}
+
+.hero p {
+  font-size: 1.25rem;
+  color: var(--md-default-fg-color--light);
+}
+
+/* Feature grid */
+.feature-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1.5rem;
+  margin: 2rem 0;
+}
+
+.feature-card {
+  padding: 1.5rem;
+  border-radius: 8px;
+  background-color: var(--md-code-bg-color);
+  border: 1px solid var(--md-default-fg-color--lightest);
+}
+
+.feature-card h3 {
+  margin-top: 0;
+  color: var(--md-primary-fg-color);
+}
+
+.feature-card p {
+  margin-bottom: 0;
+  color: var(--md-default-fg-color--light);
+}
+
+/* Audience path cards */
+.path-cards {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1.5rem;
+  margin: 2rem 0;
+}
+
+@media (max-width: 768px) {
+  .path-cards {
+    grid-template-columns: 1fr;
+  }
+}
+
+.path-card {
+  padding: 2rem;
+  border-radius: 8px;
+  border: 2px solid var(--md-primary-fg-color);
+  text-align: center;
+}
+
+.path-card h3 {
+  margin-top: 0;
+  font-size: 1.5rem;
+}
+
+.path-card ul {
+  text-align: left;
+  margin-bottom: 1rem;
+}
+
+/* Backtest results styling */
+.backtest-results {
+  font-family: var(--md-code-font-family);
+  background-color: var(--md-code-bg-color);
+  padding: 1rem;
+  border-radius: 4px;
+  line-height: 1.6;
+}
+
+.backtest-results .metric-name {
+  color: var(--md-code-hl-keyword-color);
+}
+
+.backtest-results .metric-value {
+  color: var(--md-code-hl-number-color);
+}
+
+/* Quick reference cards */
+.quick-ref {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1rem;
+  margin: 1rem 0;
+}
+
+.quick-ref-item {
+  padding: 1rem;
+  background-color: var(--md-code-bg-color);
+  border-radius: 4px;
+  font-family: var(--md-code-font-family);
+  font-size: 0.9rem;
+}
+
+/* Strategy category badges */
+.strategy-badge {
+  display: inline-block;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  margin-right: 0.5rem;
+}
+
+.strategy-badge.momentum {
+  background-color: #e3f2fd;
+  color: #1565c0;
+}
+
+.strategy-badge.mean-reversion {
+  background-color: #f3e5f5;
+  color: #7b1fa2;
+}
+
+.strategy-badge.volatility {
+  background-color: #fff3e0;
+  color: #e65100;
+}
+
+.strategy-badge.multi-factor {
+  background-color: #e8f5e9;
+  color: #2e7d32;
+}
+
+.strategy-badge.technical {
+  background-color: #fce4ec;
+  color: #c2185b;
+}
+
+.strategy-badge.stat-arb {
+  background-color: #e0f7fa;
+  color: #00838f;
+}

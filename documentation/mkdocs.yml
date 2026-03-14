@@ -1,0 +1,310 @@
+site_name: sigc Documentation
+site_url: https://docs.skelfresearch.com/sigc
+site_description: Documentation for sigc - A Rust-based quantitative finance research platform with a DSL for writing trading signals
+site_author: Skelf Research
+
+repo_url: https://github.com/skelf-Research/sigc
+repo_name: skelf-Research/sigc
+edit_uri: edit/main/documentation/docs/
+
+copyright: Copyright &copy; 2024-2026 Skelf Research
+
+theme:
+  name: material
+  language: en
+
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: deep purple
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: deep purple
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+
+  font:
+    text: Inter
+    code: JetBrains Mono
+
+  features:
+    - navigation.instant
+    - navigation.instant.prefetch
+    - navigation.tracking
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - navigation.sections
+    - navigation.expand
+    - navigation.path
+    - navigation.indexes
+    - navigation.top
+    - navigation.footer
+    - toc.follow
+    - search.suggest
+    - search.highlight
+    - search.share
+    - content.tabs.link
+    - content.code.copy
+    - content.code.annotate
+    - content.tooltips
+    - announce.dismiss
+
+  icon:
+    repo: fontawesome/brands/github
+    logo: material/chart-line
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/skelf-Research/sigc
+      name: sigc on GitHub
+
+  version:
+    provider: mike
+    default: stable
+
+extra_css:
+  - assets/stylesheets/extra.css
+
+extra_javascript:
+  - https://polyfill.io/v3/polyfill.min.js?features=es6
+  - https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js
+
+plugins:
+  - search:
+      separator: '[\s\-\.]+'
+      lang:
+        - en
+  - tags
+
+markdown_extensions:
+  - abbr
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+      toc_depth: 3
+  - pymdownx.arithmatex:
+      generic: true
+  - pymdownx.betterem:
+      smart_enable: all
+  - pymdownx.caret
+  - pymdownx.critic
+  - pymdownx.details
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+      auto_title: true
+  - pymdownx.inlinehilite
+  - pymdownx.keys
+  - pymdownx.magiclink:
+      repo_url_shorthand: true
+      user: skelf-Research
+      repo: sigc
+  - pymdownx.mark
+  - pymdownx.smartsymbols
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+      combine_header_slug: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - pymdownx.tilde
+
+nav:
+  - Home: index.md
+
+  - Getting Started:
+    - getting-started/index.md
+    - Installation: getting-started/installation.md
+    - 5-Minute Quickstart: getting-started/quickstart.md
+    - Your First Strategy: getting-started/first-strategy.md
+    - IDE Setup: getting-started/ide-setup.md
+    - Sample Data: getting-started/sample-data.md
+
+  - Core Concepts:
+    - concepts/index.md
+    - What Are Signals?: concepts/signals.md
+    - Portfolio Construction: concepts/portfolio-construction.md
+    - Backtesting Fundamentals: concepts/backtesting.md
+    - Type System: concepts/type-system.md
+    - Architecture: concepts/architecture.md
+
+  - Language Reference:
+    - language/index.md
+    - Syntax Overview: language/syntax.md
+    - Data Section: language/data-section.md
+    - Params Section: language/params-section.md
+    - Signal Section: language/signal-section.md
+    - Portfolio Section: language/portfolio-section.md
+    - Custom Functions: language/functions.md
+    - Macros: language/macros.md
+    - Expressions: language/expressions.md
+    - Comments: language/comments.md
+
+  - Operators:
+    - operators/index.md
+    - Arithmetic: operators/arithmetic.md
+    - Comparison: operators/comparison.md
+    - Logical: operators/logical.md
+    - Data Handling: operators/data-handling.md
+    - Time-Series: operators/time-series.md
+    - Cross-Sectional: operators/cross-sectional.md
+    - Technical Indicators: operators/technical.md
+    - Portfolio: operators/portfolio.md
+
+  - Data Loading:
+    - data/index.md
+    - CSV Files: data/csv.md
+    - Parquet Files: data/parquet.md
+    - S3 Sources: data/s3.md
+    - PostgreSQL: data/postgresql.md
+    - Data Quality: data/data-quality.md
+    - Corporate Actions: data/corporate-actions.md
+
+  - Backtesting:
+    - backtesting/index.md
+    - Performance Metrics: backtesting/metrics.md
+    - Transaction Costs: backtesting/cost-models.md
+    - Walk-Forward Optimization: backtesting/walk-forward.md
+    - Portfolio Constraints: backtesting/constraints.md
+    - Benchmark Analysis: backtesting/benchmark-analysis.md
+    - Returns Attribution: backtesting/attribution.md
+
+  - Production:
+    - production/index.md
+    - Daemon Mode: production/daemon-mode.md
+    - Configuration: production/configuration.md
+    - Safety Systems: production/safety-systems.md
+    - Alerting: production/alerting.md
+    - Monitoring: production/monitoring.md
+    - Scheduling: production/scheduling.md
+    - Audit Logging: production/audit-logging.md
+    - Docker Deployment: production/docker.md
+
+  - Integrations:
+    - integrations/index.md
+    - Python (pysigc): integrations/python.md
+    - VS Code Extension: integrations/vscode.md
+    - Alpaca Broker: integrations/alpaca.md
+    - Yahoo Finance: integrations/yahoo-finance.md
+    - Streaming Data: integrations/streaming.md
+
+  - Advanced Topics:
+    - advanced/index.md
+    - Factor Models: advanced/factor-models.md
+    - Risk Models: advanced/risk-models.md
+    - Regime Detection: advanced/regime-detection.md
+    - Portfolio Optimization: advanced/portfolio-optimization.md
+    - Parallel Execution: advanced/parallel-execution.md
+    - Incremental Computation: advanced/incremental-computation.md
+    - Memory Mapping: advanced/memory-mapping.md
+
+  - Tutorials:
+    - tutorials/index.md
+    - Momentum Strategy: tutorials/momentum-strategy.md
+    - Mean Reversion: tutorials/mean-reversion.md
+    - Multi-Factor Model: tutorials/multi-factor.md
+    - Volatility Strategy: tutorials/volatility-strategy.md
+    - Custom Functions: tutorials/custom-functions.md
+    - Walk-Forward Optimization: tutorials/walk-forward-optimization.md
+    - Production Deployment: tutorials/production-deployment.md
+    - Python Workflow: tutorials/python-workflow.md
+
+  - Quant Guide:
+    - quant-guide/index.md
+    - 1. Introduction: quant-guide/01-introduction.md
+    - 2. Mathematical Fundamentals: quant-guide/02-fundamentals.md
+    - 3. Signal Development: quant-guide/03-signals.md
+    - 4. Language Deep Dive: quant-guide/04-language.md
+    - 5. Backtesting Methodology: quant-guide/05-backtesting.md
+    - 6. Risk Management: quant-guide/06-risk.md
+    - 7. Going Live: quant-guide/07-production.md
+    - 8. Advanced Analytics: quant-guide/08-advanced-analytics.md
+    - 9. Deployment & Safety: quant-guide/09-deployment-safety.md
+
+  - Strategy Library:
+    - strategies/index.md
+    - Momentum:
+      - strategies/momentum/index.md
+      - Price Momentum: strategies/momentum/price-momentum.md
+      - Industry Momentum: strategies/momentum/industry-momentum.md
+      - Trend Following: strategies/momentum/trend-following.md
+      - Momentum + Quality: strategies/momentum/momentum-quality.md
+    - Mean Reversion:
+      - strategies/mean-reversion/index.md
+      - Statistical Reversion: strategies/mean-reversion/statistical-reversion.md
+      - RSI Reversion: strategies/mean-reversion/rsi-reversion.md
+      - Bollinger Bands: strategies/mean-reversion/bollinger-bands.md
+      - Short-Term Reversal: strategies/mean-reversion/short-term-reversal.md
+    - Volatility:
+      - strategies/volatility/index.md
+      - Low Volatility: strategies/volatility/low-volatility.md
+      - Volatility Targeting: strategies/volatility/volatility-targeting.md
+      - Vol-Adjusted Returns: strategies/volatility/vol-adjusted-returns.md
+      - Volatility Breakout: strategies/volatility/volatility-breakout.md
+    - Multi-Factor:
+      - strategies/multi-factor/index.md
+      - Classic Multi-Factor: strategies/multi-factor/classic-multi-factor.md
+      - Quality Factor: strategies/multi-factor/quality-factor.md
+      - Factor Timing: strategies/multi-factor/factor-timing.md
+      - Custom Factors: strategies/multi-factor/custom-factors.md
+    - Technical:
+      - strategies/technical/index.md
+      - Moving Averages: strategies/technical/moving-averages.md
+      - Breakouts: strategies/technical/breakouts.md
+      - MACD Strategy: strategies/technical/macd-strategy.md
+      - Volume Patterns: strategies/technical/volume-patterns.md
+    - Statistical Arbitrage:
+      - strategies/statistical-arbitrage/index.md
+      - Pairs Trading: strategies/statistical-arbitrage/pairs-trading.md
+      - Sector Neutral: strategies/statistical-arbitrage/sector-neutral.md
+      - Beta Neutral: strategies/statistical-arbitrage/beta-neutral.md
+
+  - Reference:
+    - reference/index.md
+    - CLI Commands: reference/cli.md
+    - Operators Table: reference/operators-table.md
+    - Error Messages: reference/error-messages.md
+    - Configuration: reference/configuration.md
+    - Environment Variables: reference/environment-variables.md
+    - Exit Codes: reference/exit-codes.md
+
+  - API Reference:
+    - api/index.md
+    - Rust API:
+      - api/rust/index.md
+      - Strategy: api/rust/strategy.md
+      - Results: api/rust/results.md
+      - Data: api/rust/data.md
+      - Types: api/rust/types.md
+    - Python API:
+      - api/python/index.md
+      - Reference: api/python/reference.md
+
+  - Contributing:
+    - contributing/index.md
+    - Development Setup: contributing/development-setup.md
+    - Code Style: contributing/code-style.md
+    - Testing: contributing/testing.md
+    - Documentation: contributing/documentation.md
+
+  - Changelog: changelog.md
