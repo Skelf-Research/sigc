@@ -2,6 +2,14 @@
 name = "sig_lsp"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+keywords.workspace = true
+categories.workspace = true
+description = "Language Server Protocol implementation for the sigc DSL"
+readme = "README.md"
 
 [[bin]]
 name = "sigc-lsp"

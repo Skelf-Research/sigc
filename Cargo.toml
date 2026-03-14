@@ -14,7 +14,11 @@ resolver = "2"
 version = "0.1.0"
 edition = "2021"
 license = "MIT"
-repository = "https://github.com/dipankar/sigc"
+repository = "https://github.com/skelf-Research/sigc"
+homepage = "https://docs.skelfresearch.com/sigc"
+authors = ["Skelf Research <info@skelfresearch.com>"]
+keywords = ["quant", "trading", "backtesting", "finance", "dsl"]
+categories = ["finance", "command-line-utilities", "development-tools"]
 
 [workspace.dependencies]
 # Serialization
@@ -67,7 +71,7 @@ sqlx = { version = "0.8", features = ["runtime-tokio", "postgres", "macros"] }
 chrono = "0.4"
 
 # Internal crates
-sig_types = { path = "crates/sig_types" }
-sig_cache = { path = "crates/sig_cache" }
-sig_compiler = { path = "crates/sig_compiler" }
-sig_runtime = { path = "crates/sig_runtime" }
+sig_types = { version = "0.1.0", path = "crates/sig_types" }
+sig_cache = { version = "0.1.0", path = "crates/sig_cache" }
+sig_compiler = { version = "0.1.0", path = "crates/sig_compiler" }
+sig_runtime = { version = "0.1.0", path = "crates/sig_runtime" }

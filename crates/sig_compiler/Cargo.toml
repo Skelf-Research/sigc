@@ -2,6 +2,14 @@
 name = "sig_compiler"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+keywords.workspace = true
+categories.workspace = true
+description = "Parser and compiler for the sigc quantitative finance DSL"
+readme = "README.md"
 
 [dependencies]
 sig_types.workspace = true

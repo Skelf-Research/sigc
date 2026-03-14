@@ -172,4 +172,10 @@ This repository is in active design. Please open an issue or discussion with you
 
 ## License
 
-License TBD (likely Apache-2.0 or MIT once legal clears). For now, treat the repo as all-rights-reserved until we formalize the terms.
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## Links
+
+- **Documentation**: [https://docs.skelfresearch.com/sigc](https://docs.skelfresearch.com/sigc)
+- **GitHub**: [https://github.com/skelf-Research/sigc](https://github.com/skelf-Research/sigc)
+- **Crates.io**: [https://crates.io/crates/sigc](https://crates.io/crates/sigc)
