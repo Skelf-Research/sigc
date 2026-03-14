@@ -5,6 +5,7 @@ members = [
     "crates/sig_compiler",
     "crates/sig_runtime",
     "crates/sigc",
+    "crates/sig_lsp",
     "crates/pysigc",
 ]
 resolver = "2"

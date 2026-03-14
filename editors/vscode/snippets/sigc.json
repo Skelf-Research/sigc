@@ -1,0 +1,163 @@
+{
+  "Signal Template": {
+    "prefix": "signal",
+    "body": [
+      "signal ${1:name}:",
+      "  ${2:var} = ${3:expr}",
+      "  emit ${4:$2}"
+    ],
+    "description": "Create a new signal block"
+  },
+  "Data Section": {
+    "prefix": "data",
+    "body": [
+      "data:",
+      "  ${1:name}: load ${2|csv,parquet|} from \"${3:path}\""
+    ],
+    "description": "Create a data section"
+  },
+  "Parameters Section": {
+    "prefix": "params",
+    "body": [
+      "params:",
+      "  ${1:name} = ${2:value}"
+    ],
+    "description": "Create a params section"
+  },
+  "Portfolio Template": {
+    "prefix": "portfolio",
+    "body": [
+      "portfolio ${1:main}:",
+      "  weights = rank(${2:signal}).long_short(top=${3:0.2}, bottom=${4:0.2})",
+      "  backtest from ${5:2020-01-01} to ${6:2024-12-31}"
+    ],
+    "description": "Create a portfolio block"
+  },
+  "Full Strategy Template": {
+    "prefix": "strategy",
+    "body": [
+      "// ${1:Strategy Name}",
+      "// ${2:Description}",
+      "",
+      "data:",
+      "  px: load csv from \"${3:data/prices.csv}\"",
+      "",
+      "params:",
+      "  ${4:lookback} = ${5:20}",
+      "",
+      "signal ${6:main}:",
+      "  r = ret(px, $4)",
+      "  z = zscore(r)",
+      "  emit winsor(z, p=0.01)",
+      "",
+      "portfolio main:",
+      "  weights = rank($6).long_short(top=0.2, bottom=0.2)",
+      "  backtest from 2020-01-01 to 2024-12-31"
+    ],
+    "description": "Create a complete strategy template"
+  },
+  "User Function": {
+    "prefix": "fn",
+    "body": [
+      "fn ${1:name}(${2:x}, ${3:window}=${4:20}):",
+      "  ${5:expr}"
+    ],
+    "description": "Create a user-defined function"
+  },
+  "Momentum Signal": {
+    "prefix": "momentum",
+    "body": [
+      "signal ${1:momentum}:",
+      "  r = ret(${2:px}, ${3:lookback})",
+      "  z = zscore(r)",
+      "  emit winsor(z, p=0.01)"
+    ],
+    "description": "Create a momentum signal"
+  },
+  "Mean Reversion Signal": {
+    "prefix": "meanrev",
+    "body": [
+      "signal ${1:reversal}:",
+      "  r = ret(${2:px}, ${3:lookback})",
+      "  z = -zscore(r)",
+      "  emit winsor(z, p=0.01)"
+    ],
+    "description": "Create a mean reversion signal"
+  },
+  "Volatility Signal": {
+    "prefix": "volatility",
+    "body": [
+      "signal ${1:low_vol}:",
+      "  daily_ret = ret(${2:px}, 1)",
+      "  vol = rolling_std(daily_ret, ${3:window})",
+      "  z = -zscore(vol)",
+      "  emit winsor(z, p=0.01)"
+    ],
+    "description": "Create a low volatility signal"
+  },
+  "Rolling Mean": {
+    "prefix": "rmean",
+    "body": "rolling_mean(${1:x}, ${2:window})",
+    "description": "Rolling mean function"
+  },
+  "Rolling Std": {
+    "prefix": "rstd",
+    "body": "rolling_std(${1:x}, ${2:window})",
+    "description": "Rolling standard deviation"
+  },
+  "Z-Score": {
+    "prefix": "zs",
+    "body": "zscore(${1:x})",
+    "description": "Cross-sectional z-score"
+  },
+  "Winsorize": {
+    "prefix": "win",
+    "body": "winsor(${1:x}, p=${2:0.01})",
+    "description": "Winsorize at percentile"
+  },
+  "Long-Short Portfolio": {
+    "prefix": "longshort",
+    "body": "rank(${1:signal}).long_short(top=${2:0.2}, bottom=${3:0.2})",
+    "description": "Long-short portfolio weights"
+  },
+  "Return Calculation": {
+    "prefix": "ret",
+    "body": "ret(${1:px}, ${2:period})",
+    "description": "Calculate returns"
+  },
+  "Lag Function": {
+    "prefix": "lag",
+    "body": "lag(${1:x}, ${2:periods})",
+    "description": "Lag by n periods"
+  },
+  "EMA": {
+    "prefix": "ema",
+    "body": "ema(${1:x}, ${2:span})",
+    "description": "Exponential moving average"
+  },
+  "RSI": {
+    "prefix": "rsi",
+    "body": "rsi(${1:px}, ${2:14})",
+    "description": "Relative Strength Index"
+  },
+  "MACD": {
+    "prefix": "macd",
+    "body": "macd(${1:px}, ${2:12}, ${3:26}, ${4:9})",
+    "description": "MACD indicator"
+  },
+  "Clip Values": {
+    "prefix": "clip",
+    "body": "clip(${1:x}, ${2:-3}, ${3:3})",
+    "description": "Clip values to range"
+  },
+  "Fill NaN": {
+    "prefix": "fillna",
+    "body": "fill_nan(${1:x}, ${2:0})",
+    "description": "Fill NaN values"
+  },
+  "Conditional": {
+    "prefix": "where",
+    "body": "where(${1:condition}, ${2:if_true}, ${3:if_false})",
+    "description": "Conditional expression"
+  }
+}

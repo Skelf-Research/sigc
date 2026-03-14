@@ -1,0 +1,177 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "sigc",
+  "scopeName": "source.sigc",
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#sections" },
+    { "include": "#keywords" },
+    { "include": "#operators" },
+    { "include": "#functions" },
+    { "include": "#strings" },
+    { "include": "#numbers" },
+    { "include": "#variables" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.double-slash.sigc",
+          "match": "//.*$"
+        },
+        {
+          "name": "comment.line.hash.sigc",
+          "match": "#.*$"
+        },
+        {
+          "name": "comment.block.sigc",
+          "begin": "/\\*",
+          "end": "\\*/"
+        }
+      ]
+    },
+    "sections": {
+      "patterns": [
+        {
+          "name": "keyword.control.section.sigc",
+          "match": "^(data|params|signal|portfolio|fn)\\b"
+        },
+        {
+          "name": "entity.name.function.sigc",
+          "match": "(?<=^(signal|portfolio|fn)\\s+)\\w+"
+        },
+        {
+          "name": "keyword.other.emit.sigc",
+          "match": "\\bemit\\b"
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.sigc",
+          "match": "\\b(load|from|backtest|rebal|benchmark|costs|weights|adjust|dtype)\\b"
+        },
+        {
+          "name": "storage.type.sigc",
+          "match": "\\b(csv|parquet|price|feature|sector|category|split_div)\\b"
+        },
+        {
+          "name": "keyword.operator.logical.sigc",
+          "match": "\\b(and|or|not)\\b"
+        },
+        {
+          "name": "constant.language.sigc",
+          "match": "\\b(true|false|nan|inf)\\b"
+        }
+      ]
+    },
+    "operators": {
+      "patterns": [
+        {
+          "name": "keyword.operator.comparison.sigc",
+          "match": "(==|!=|<=|>=|<|>)"
+        },
+        {
+          "name": "keyword.operator.arithmetic.sigc",
+          "match": "(\\+|-|\\*|/)"
+        },
+        {
+          "name": "keyword.operator.assignment.sigc",
+          "match": "="
+        }
+      ]
+    },
+    "functions": {
+      "patterns": [
+        {
+          "comment": "Time-series functions",
+          "name": "support.function.timeseries.sigc",
+          "match": "\\b(ret|lag|delta|rolling_mean|rolling_std|rolling_sum|rolling_min|rolling_max|rolling_corr|ema|decay_linear|ts_argmax|ts_argmin|ts_rank|ts_skew|ts_kurt|ts_product|ts_zscore)\\b"
+        },
+        {
+          "comment": "Cross-sectional functions",
+          "name": "support.function.crosssection.sigc",
+          "match": "\\b(zscore|rank|rank_pct|scale|demean|winsor|neutralize|quantile|bucket|median|mad|as_xs)\\b"
+        },
+        {
+          "comment": "Arithmetic functions",
+          "name": "support.function.arithmetic.sigc",
+          "match": "\\b(abs|sign|log|exp|pow|sqrt|floor|ceil|round|min|max|clip)\\b"
+        },
+        {
+          "comment": "Data handling functions",
+          "name": "support.function.data.sigc",
+          "match": "\\b(is_nan|fill_nan|coalesce|cumsum|cumprod|cummax|cummin|where)\\b"
+        },
+        {
+          "comment": "Technical indicators",
+          "name": "support.function.technical.sigc",
+          "match": "\\b(rsi|macd|atr|vwap)\\b"
+        },
+        {
+          "comment": "Portfolio functions",
+          "name": "support.function.portfolio.sigc",
+          "match": "\\b(long_short|scale_vol)\\b"
+        }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.double.sigc",
+          "begin": "\"",
+          "end": "\"",
+          "patterns": [
+            {
+              "name": "constant.character.escape.sigc",
+              "match": "\\\\."
+            }
+          ]
+        },
+        {
+          "name": "string.quoted.single.sigc",
+          "begin": "'",
+          "end": "'",
+          "patterns": [
+            {
+              "name": "constant.character.escape.sigc",
+              "match": "\\\\."
+            }
+          ]
+        }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "name": "constant.numeric.float.sigc",
+          "match": "\\b\\d+\\.\\d+\\b"
+        },
+        {
+          "name": "constant.numeric.integer.sigc",
+          "match": "\\b\\d+\\b"
+        },
+        {
+          "comment": "Date literals",
+          "name": "constant.other.date.sigc",
+          "match": "\\b\\d{4}-\\d{2}-\\d{2}\\b"
+        }
+      ]
+    },
+    "variables": {
+      "patterns": [
+        {
+          "comment": "Parameter in keyword argument",
+          "name": "variable.parameter.sigc",
+          "match": "\\b(\\w+)(?==)"
+        },
+        {
+          "comment": "Variable assignment target",
+          "name": "variable.other.sigc",
+          "match": "^\\s*(\\w+)(?=\\s*=)"
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,111 @@
+{
+  "name": "sigc",
+  "displayName": "sigc - Quantitative Signal Language",
+  "description": "Language support for sigc quantitative research DSL",
+  "version": "0.1.0",
+  "publisher": "sigc",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sigc/sigc"
+  },
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Snippets",
+    "Linters"
+  ],
+  "keywords": [
+    "sigc",
+    "quantitative",
+    "finance",
+    "trading",
+    "signals",
+    "backtesting"
+  ],
+  "activationEvents": [
+    "onLanguage:sigc"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "sigc",
+        "aliases": [
+          "sigc",
+          "Sigc"
+        ],
+        "extensions": [
+          ".sig",
+          ".sigc"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "sigc",
+        "scopeName": "source.sigc",
+        "path": "./syntaxes/sigc.tmLanguage.json"
+      }
+    ],
+    "snippets": [
+      {
+        "language": "sigc",
+        "path": "./snippets/sigc.json"
+      }
+    ],
+    "configuration": {
+      "title": "sigc",
+      "properties": {
+        "sigc.server.path": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the sigc language server executable"
+        },
+        "sigc.trace.server": {
+          "type": "string",
+          "enum": [
+            "off",
+            "messages",
+            "verbose"
+          ],
+          "default": "off",
+          "description": "Traces the communication between VS Code and the language server"
+        }
+      }
+    },
+    "commands": [
+      {
+        "command": "sigc.compile",
+        "title": "sigc: Compile Current File"
+      },
+      {
+        "command": "sigc.run",
+        "title": "sigc: Run Backtest"
+      },
+      {
+        "command": "sigc.explain",
+        "title": "sigc: Explain IR"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "lint": "eslint src --ext ts"
+  },
+  "devDependencies": {
+    "@types/node": "^18.0.0",
+    "@types/vscode": "^1.75.0",
+    "@typescript-eslint/eslint-plugin": "^6.0.0",
+    "@typescript-eslint/parser": "^6.0.0",
+    "eslint": "^8.0.0",
+    "typescript": "^5.0.0"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.0"
+  }
+}
