@@ -3,7 +3,10 @@
 //! Parses .sig files and produces typed IR.
 
 pub mod ast;
+pub mod diagnostics;
 pub mod parser;
+
+pub use diagnostics::{Diagnostic, DiagnosticCollector, Severity, Position, LocationRange};
 
 use chumsky::Parser;
 use sig_types::{
@@ -154,12 +157,20 @@ impl Default for Compiler {
     }
 }
 
+/// User-defined function stored for expansion
+#[derive(Clone)]
+struct UserFunction {
+    params: Vec<ast::FunctionParam>,
+    body: ast::Spanned<ast::Expr>,
+}
+
 /// IR lowering state
 struct IrLowering {
     nodes: Vec<IrNode>,
     outputs: Vec<u64>,
     next_id: u64,
     symbols: HashMap<String, u64>,
+    user_functions: HashMap<String, UserFunction>,
 }
 
 impl IrLowering {
@@ -169,6 +180,7 @@ impl IrLowering {
             outputs: Vec::new(),
             next_id: 0,
             symbols: HashMap::new(),
+            user_functions: HashMap::new(),
         }
     }
 
@@ -189,6 +201,17 @@ impl IrLowering {
         for data in &program.data {
             let id = self.alloc_id();
             self.symbols.insert(data.node.name.clone(), id);
+        }
+
+        // Register user-defined functions
+        for func in &program.functions {
+            self.user_functions.insert(
+                func.node.name.clone(),
+                UserFunction {
+                    params: func.node.params.clone(),
+                    body: func.node.body.clone(),
+                },
+            );
         }
 
         // Lower signal blocks
@@ -295,6 +318,13 @@ impl IrLowering {
             }
 
             ast::Expr::Call { func, args, kwargs } => {
+                // Check for user-defined function first
+                if let Some(user_func) = self.user_functions.get(func).cloned() {
+                    // Substitute parameters in function body
+                    let substituted = self.substitute_params(&user_func, args, kwargs)?;
+                    return self.lower_expr(&substituted);
+                }
+
                 let arg_ids: Vec<u64> = args
                     .iter()
                     .map(|a| self.lower_expr(&a.node))
@@ -595,5 +625,97 @@ impl IrLowering {
             }
             None
         })
+    }
+
+    /// Substitute parameters in a user-defined function body
+    fn substitute_params(
+        &self,
+        func: &UserFunction,
+        args: &[ast::Spanned<ast::Expr>],
+        kwargs: &[(String, ast::Spanned<ast::Expr>)],
+    ) -> Result<ast::Expr> {
+        // Build parameter -> expression mapping
+        let mut param_map: HashMap<String, ast::Expr> = HashMap::new();
+
+        // First, set defaults
+        for param in &func.params {
+            if let Some(default) = &param.default {
+                param_map.insert(param.name.clone(), default.clone());
+            }
+        }
+
+        // Then, apply positional arguments
+        for (i, arg) in args.iter().enumerate() {
+            if i < func.params.len() {
+                param_map.insert(func.params[i].name.clone(), arg.node.clone());
+            }
+        }
+
+        // Finally, apply keyword arguments
+        for (name, value) in kwargs {
+            param_map.insert(name.clone(), value.node.clone());
+        }
+
+        // Substitute in the body
+        Ok(self.substitute_expr(&func.body.node, &param_map))
+    }
+
+    /// Recursively substitute parameters in an expression
+    fn substitute_expr(&self, expr: &ast::Expr, param_map: &HashMap<String, ast::Expr>) -> ast::Expr {
+        match expr {
+            ast::Expr::Ident(name) => {
+                if let Some(replacement) = param_map.get(name) {
+                    replacement.clone()
+                } else {
+                    expr.clone()
+                }
+            }
+            ast::Expr::BinOp { op, left, right } => ast::Expr::BinOp {
+                op: *op,
+                left: Box::new(ast::Spanned::new(
+                    self.substitute_expr(&left.node, param_map),
+                    left.span.clone(),
+                )),
+                right: Box::new(ast::Spanned::new(
+                    self.substitute_expr(&right.node, param_map),
+                    right.span.clone(),
+                )),
+            },
+            ast::Expr::UnaryOp { op, expr: inner } => ast::Expr::UnaryOp {
+                op: *op,
+                expr: Box::new(ast::Spanned::new(
+                    self.substitute_expr(&inner.node, param_map),
+                    inner.span.clone(),
+                )),
+            },
+            ast::Expr::Call { func, args, kwargs } => ast::Expr::Call {
+                func: func.clone(),
+                args: args.iter().map(|a| ast::Spanned::new(
+                    self.substitute_expr(&a.node, param_map),
+                    a.span.clone(),
+                )).collect(),
+                kwargs: kwargs.iter().map(|(k, v)| (
+                    k.clone(),
+                    ast::Spanned::new(self.substitute_expr(&v.node, param_map), v.span.clone())
+                )).collect(),
+            },
+            ast::Expr::MethodCall { object, method, args, kwargs } => ast::Expr::MethodCall {
+                object: Box::new(ast::Spanned::new(
+                    self.substitute_expr(&object.node, param_map),
+                    object.span.clone(),
+                )),
+                method: method.clone(),
+                args: args.iter().map(|a| ast::Spanned::new(
+                    self.substitute_expr(&a.node, param_map),
+                    a.span.clone(),
+                )).collect(),
+                kwargs: kwargs.iter().map(|(k, v)| (
+                    k.clone(),
+                    ast::Spanned::new(self.substitute_expr(&v.node, param_map), v.span.clone())
+                )).collect(),
+            },
+            // Literals don't need substitution
+            _ => expr.clone(),
+        }
     }
 }

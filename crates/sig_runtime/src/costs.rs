@@ -2,7 +2,6 @@
 //!
 //! Includes slippage, market impact, commissions, and borrowing costs.
 
-use sig_types::Result;
 
 /// Transaction cost model
 #[derive(Debug, Clone)]

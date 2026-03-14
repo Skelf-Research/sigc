@@ -103,6 +103,7 @@ impl SqlConnector {
     }
 
     /// Build connection string
+    #[allow(dead_code)]
     fn connection_string(&self) -> String {
         match &self.config {
             ConnectorConfig::Postgres { host, port, database, user, password } => {

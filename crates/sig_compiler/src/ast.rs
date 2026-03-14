@@ -23,8 +23,24 @@ impl<T> Spanned<T> {
 pub struct Program {
     pub data: Vec<Spanned<DataDecl>>,
     pub params: Vec<Spanned<ParamDecl>>,
+    pub functions: Vec<Spanned<FunctionDef>>,
     pub signals: Vec<Spanned<SignalBlock>>,
     pub portfolios: Vec<Spanned<PortfolioBlock>>,
+}
+
+/// User-defined function definition
+#[derive(Debug, Clone)]
+pub struct FunctionDef {
+    pub name: String,
+    pub params: Vec<FunctionParam>,
+    pub body: Spanned<Expr>,
+}
+
+/// Function parameter with optional default value
+#[derive(Debug, Clone)]
+pub struct FunctionParam {
+    pub name: String,
+    pub default: Option<Expr>,
 }
 
 /// Data loading declaration

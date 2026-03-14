@@ -2,7 +2,7 @@
 //!
 //! Enforces position-level and portfolio-level constraints on weights.
 
-use sig_types::{Result, SigcError};
+use sig_types::Result;
 use std::collections::HashMap;
 
 /// Position-level constraint

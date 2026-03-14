@@ -684,3 +684,150 @@ fn test_walk_forward_optimization() {
     // Struct creation should succeed
     // (actual execution requires valid IR which is tested elsewhere)
 }
+
+#[test]
+fn test_simd_kernels() {
+    use sig_runtime::{rolling_mean_simd, rolling_std_simd, cumsum_simd, ema_simd, KernelDispatcher};
+    use polars::prelude::*;
+
+    let values: Vec<f64> = (1..=100).map(|x| x as f64).collect();
+    let series = Series::new("test".into(), values);
+
+    // Test SIMD rolling mean
+    let mean = rolling_mean_simd(&series, 10).unwrap();
+    assert_eq!(mean.len(), 100);
+
+    // Test SIMD rolling std
+    let std = rolling_std_simd(&series, 10).unwrap();
+    assert_eq!(std.len(), 100);
+
+    // Test SIMD cumsum
+    let sum = cumsum_simd(&series).unwrap();
+    let last: f64 = sum.f64().unwrap().get(99).unwrap();
+    assert_eq!(last, 5050.0); // Sum of 1..100
+
+    // Test SIMD EMA
+    let ema = ema_simd(&series, 10).unwrap();
+    assert_eq!(ema.len(), 100);
+
+    // Test kernel dispatcher
+    let dispatcher = KernelDispatcher::default();
+    let result = dispatcher.rolling_mean(&series, 10).unwrap();
+    assert_eq!(result.len(), 100);
+}
+
+#[test]
+fn test_incremental_computation() {
+    use sig_runtime::{IncrementalCompute, RollingMeanState, EmaState};
+
+    // Test rolling mean state
+    let mut state = RollingMeanState::new(5);
+    let values = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0];
+    let results = state.update_batch(&values);
+    assert_eq!(results.len(), 7);
+    assert!((results[4] - 3.0).abs() < 0.001); // (1+2+3+4+5)/5
+
+    // Test EMA state
+    let mut ema = EmaState::new(3);
+    let v1 = ema.update(10.0);
+    assert_eq!(v1, 10.0);
+    let v2 = ema.update(20.0);
+    assert!(v2 > 10.0 && v2 < 20.0);
+
+    // Test incremental compute manager
+    let mut compute = IncrementalCompute::new();
+    compute.register_rolling_mean("sma", 3);
+    compute.register_ema("ema", 5);
+
+    let mean = compute.update_rolling_mean("sma", 100.0).unwrap();
+    assert_eq!(mean, 100.0);
+
+    let ema_val = compute.update_ema("ema", 100.0).unwrap();
+    assert_eq!(ema_val, 100.0);
+}
+
+#[test]
+fn test_runtime_config() {
+    use sig_runtime::{RuntimeConfig, StrategyParams};
+
+    // Test default config
+    let config = RuntimeConfig::default();
+    assert_eq!(config.database.port, 5432);
+    assert_eq!(config.execution.chunk_size, 100);
+    assert!(config.cache.enabled);
+
+    // Test strategy params
+    let mut params = StrategyParams::new();
+    params.set("window", 20.0).set("threshold", 0.5);
+    assert_eq!(params.get("window"), Some(20.0));
+    assert_eq!(params.get_or("missing", 10.0), 10.0);
+
+    // Config should be serializable (basic check)
+    assert!(config.database.port > 0);
+    assert!(config.execution.chunk_size > 0);
+}
+
+#[test]
+fn test_data_quality_validation() {
+    use sig_runtime::{DataQualityValidator, MissingDataCheck, OutlierCheck, OutlierMethod};
+    use polars::prelude::*;
+
+    // Create test data with some issues
+    let df = DataFrame::new(vec![
+        Column::new("price".into(), vec![100.0, 101.0, 102.0, 103.0, 104.0]),
+        Column::new("volume".into(), vec![1000.0, 1100.0, 1200.0, 1300.0, 1400.0]),
+    ]).unwrap();
+
+    // Test missing data check
+    let check = MissingDataCheck {
+        max_missing_pct: 10.0,
+        columns: vec!["price".into()],
+    };
+
+    let validator = DataQualityValidator::new()
+        .add(Box::new(check));
+
+    let result = validator.validate(&df).unwrap();
+    assert!(result.passed);
+
+    // Test outlier check
+    let outlier_check = OutlierCheck {
+        method: OutlierMethod::ZScore { threshold: 3.0 },
+        columns: vec!["price".into()],
+        max_outlier_pct: 10.0,
+    };
+
+    let validator2 = DataQualityValidator::new()
+        .add(Box::new(outlier_check));
+    let result2 = validator2.validate(&df).unwrap();
+    assert!(result2.passed);
+}
+
+#[test]
+fn test_corporate_actions() {
+    use sig_runtime::{CorporateAction, CorporateActionStore, SymbolMapper};
+
+    // Test creating actions
+    let split = CorporateAction::split("AAPL", "2020-08-31", 4.0);
+    let dividend = CorporateAction::dividend("MSFT", "2024-01-15", 0.75);
+
+    // Test action store
+    let mut store = CorporateActionStore::new();
+    store.add(split);
+    store.add(dividend);
+    store.add(CorporateAction::split("AAPL", "2014-06-09", 7.0));
+
+    let actions = store.get("AAPL").unwrap();
+    assert_eq!(actions.len(), 2);
+
+    let range = store.get_in_range("AAPL", "2019-01-01", "2021-01-01");
+    assert_eq!(range.len(), 1);
+
+    // Test symbol mapper
+    let mut mapper = SymbolMapper::new();
+    mapper.add_change("FB", "META", "2022-10-28");
+
+    assert_eq!(mapper.get_current("FB"), "META");
+    assert_eq!(mapper.get_current("META"), "META");
+    assert_eq!(mapper.get_at_date("META", "2022-01-01"), "FB");
+}

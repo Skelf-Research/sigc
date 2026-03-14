@@ -1,7 +1,7 @@
 //! Parameter optimization via grid search
 
 use crate::Runtime;
-use sig_types::{BacktestMetrics, BacktestPlan, BacktestReport, Ir, Result};
+use sig_types::{BacktestMetrics, BacktestPlan, Ir, Result};
 use std::collections::HashMap;
 
 /// Result from a single parameter combination

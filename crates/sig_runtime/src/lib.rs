@@ -2,21 +2,37 @@
 //!
 //! Executes IR and manages data ingestion.
 
+pub mod alerts;
 pub mod attribution;
 pub mod audit;
 pub mod backtest;
 pub mod benchmark;
+pub mod config;
 pub mod connectors;
+pub mod connectors_async;
 pub mod constraints;
+pub mod corporate_actions;
 pub mod costs;
 pub mod data;
+pub mod data_quality;
 pub mod engine;
+pub mod factors;
+pub mod incremental;
+pub mod integrations;
 pub mod kernels;
 pub mod metrics;
+pub mod mmap_data;
 pub mod optimize;
 pub mod panel;
 pub mod parallel;
+pub mod portfolio_opt;
+pub mod regime;
 pub mod reporting;
+pub mod result_store;
+pub mod risk_models;
+pub mod safety;
+pub mod scheduler;
+pub mod simd_kernels;
 pub mod universe;
 pub mod viz;
 pub mod walk_forward;
@@ -42,9 +58,36 @@ pub use walk_forward::{WalkForward, WalkForwardConfig, WalkForwardResult, FoldRe
 pub use audit::{AuditLogger, AuditEvent, AuditEntry, audit_log, init_audit_logger};
 pub use benchmark::BenchmarkAnalyzer;
 pub use metrics::{MetricsRegistry, Timer, metrics};
+pub use result_store::{ResultStore, ResultMetadata, ResultQuery, ResultId, ResultStoreRegistry, MemoryResultStore, PostgresResultStore, generate_result_id, ResultComparison, ComparisonWinner, PerformanceHistory, PerformanceTrend, load_performance_history};
+pub use alerts::{Alert, AlertSeverity, AlertSink, AlertManager, AlertRule, ConsoleAlertSink, SlackAlertSink, MockAlertSink};
+pub use scheduler::{Job, JobStatus, Schedule, JobScheduler, JobResult, MemoryScheduler, CronScheduler, SchedulerRegistry};
+pub use data_quality::{DataValidator, DataQualityValidator, DataIssue, IssueSeverity, ValidationResult, MissingDataCheck, OutlierCheck, OutlierMethod, FreshnessCheck, DuplicateCheck};
+pub use connectors_async::{AsyncPgConnector, AsyncConnectorConfig, AsyncConnectorRegistry, PoolStats};
+pub use corporate_actions::{CorporateAction, ActionType, CorporateActionAdjuster, StandardAdjuster, CorporateActionStore, SymbolMapper};
+pub use simd_kernels::{KernelDispatcher, KernelConfig, rolling_mean_simd, rolling_std_simd, cumsum_simd, ema_simd, batch_rolling_mean, batch_rolling_std};
+pub use mmap_data::{MmapLoader, DataStream, MmapCache};
+pub use incremental::{IncrementalCompute, IncrementalProcessor, RollingMeanState, RollingStdState, EmaState, CumsumState, RsiState};
+pub use config::{RuntimeConfig, DatabaseConfig, ExecutionConfig, DataConfig, AlertConfig, LoggingConfig, CacheConfig, BacktestConfig, StrategyParams};
+pub use factors::{FamaFrench, FactorExposures, ReturnDecomposition, BarraModel, FactorBuilder, FactorAnalysis, analyze_factors};
+pub use risk_models::{VaRCalculator, CVaRCalculator, StressTest, StressScenario, RiskReport, generate_risk_report, MarginalVaR, component_var};
+pub use regime::{MarketRegime, HiddenMarkovModel, VolatilityRegime, TrendRegime, RegimeDetector, KMeansRegime};
+pub use portfolio_opt::{OptimalPortfolio, MeanVarianceOptimizer, PortfolioConstraints, RiskParityOptimizer, BlackLitterman, View, HierarchicalRiskParity};
+pub use safety::{
+    activate_kill_switch, deactivate_kill_switch, is_kill_switch_active,
+    CircuitBreaker, CircuitBreakerConfig, CircuitState,
+    PositionLimits, PositionLimitEnforcer,
+    Order, OrderSide, OrderType, OrderValidator, OrderValidationRules,
+    RateLimiter, SafetyManager, SafetyStatus,
+};
+pub use integrations::{
+    MarketDataProvider, Quote, YahooFinance,
+    AlpacaBroker, AlpacaAccount, AlpacaPosition, AlpacaOrder, AlpacaOrderResponse,
+    StreamingClient, IntegrationRegistry,
+};
 
 /// Runtime execution context
 pub struct Runtime {
+    #[allow(dead_code)]
     cache: Option<sig_cache::Cache>,
     engine: Engine,
     backtester: Backtester,

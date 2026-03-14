@@ -9,6 +9,64 @@ use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
+// ANSI color codes for better error display
+const RED: &str = "\x1b[31m";
+const GREEN: &str = "\x1b[32m";
+const YELLOW: &str = "\x1b[33m";
+const BLUE: &str = "\x1b[34m";
+const BOLD: &str = "\x1b[1m";
+const RESET: &str = "\x1b[0m";
+
+fn print_error(msg: &str) {
+    eprintln!("{}{}error:{} {}", BOLD, RED, RESET, msg);
+}
+
+fn print_success(msg: &str) {
+    println!("{}{}✓{} {}", BOLD, GREEN, RESET, msg);
+}
+
+fn print_info(msg: &str) {
+    println!("{}{}info:{} {}", BOLD, BLUE, RESET, msg);
+}
+
+fn print_warning(msg: &str) {
+    eprintln!("{}{}warning:{} {}", BOLD, YELLOW, RESET, msg);
+}
+
+/// Try to open cache with retries (brokerless concurrency handling)
+fn try_open_cache_with_retry(cache_dir: &PathBuf, max_attempts: u32) -> Result<sig_cache::Cache> {
+    use std::thread;
+    use std::time::Duration;
+
+    for attempt in 1..=max_attempts {
+        match sig_cache::Cache::open(cache_dir) {
+            Ok(cache) => {
+                if attempt > 1 {
+                    tracing::debug!("Cache opened successfully on attempt {}", attempt);
+                }
+                return Ok(cache);
+            }
+            Err(e) => {
+                let is_lock_error = e.to_string().contains("lock") || e.to_string().contains("WouldBlock");
+
+                if is_lock_error && attempt < max_attempts {
+                    // Exponential backoff: 100ms, 200ms, 400ms...
+                    let wait_ms = 100 * 2_u64.pow(attempt - 1);
+                    tracing::debug!(
+                        "Cache lock conflict (attempt {}/{}), retrying in {}ms...",
+                        attempt, max_attempts, wait_ms
+                    );
+                    thread::sleep(Duration::from_millis(wait_ms));
+                } else {
+                    return Err(e.into());
+                }
+            }
+        }
+    }
+
+    Err(anyhow::anyhow!("Failed to open cache after {} attempts", max_attempts))
+}
+
 #[derive(Parser)]
 #[command(name = "sigc")]
 #[command(version, about = "Signal compiler and backtester", long_about = None)]
@@ -48,6 +106,10 @@ enum Commands {
         /// Listen address (tcp://host:port)
         #[arg(long, default_value = "tcp://127.0.0.1:7240")]
         listen: String,
+
+        /// Number of concurrent runtime workers (defaults to CPU count)
+        #[arg(long)]
+        workers: Option<usize>,
     },
 
     /// Send request to daemon
@@ -122,112 +184,179 @@ fn main() -> Result<()> {
 
     tracing::info!("sigc v{}", env!("CARGO_PKG_VERSION"));
 
-    // Handle Request commands without cache (they connect to daemon)
+    // Handle Request commands without cache (they connect to daemon via async)
     if let Some(Commands::Request { addr, action }) = cli.command {
-        let client = daemon::Client::connect(&addr)?;
+        let runtime = tokio::runtime::Runtime::new()?;
+        return runtime.block_on(async {
+            let client = daemon::Client::new(&addr)?;
 
-        match action {
-            RequestAction::Ping => {
-                if client.ping()? {
-                    println!("Pong!");
-                } else {
-                    println!("No response");
+            match action {
+                RequestAction::Ping => {
+                    if client.ping().await? {
+                        println!("Pong!");
+                    } else {
+                        println!("No response");
+                    }
                 }
-            }
 
-            RequestAction::Compile { input } => {
-                let source = std::fs::read_to_string(&input)?;
-                match client.compile(&source)? {
-                    daemon::Response::CompileResult { success, nodes, error } => {
-                        if success {
-                            println!("Compiled successfully: {} nodes", nodes);
-                        } else {
-                            println!("Compilation failed: {}", error.unwrap_or_default());
+                RequestAction::Compile { input } => {
+                    let source = std::fs::read_to_string(&input)?;
+                    match client.compile(&source).await? {
+                        daemon::Response::CompileResult { success, nodes, error } => {
+                            if success {
+                                println!("Compiled successfully: {} nodes", nodes);
+                            } else {
+                                println!("Compilation failed: {}", error.unwrap_or_default());
+                            }
                         }
+                        _ => println!("Unexpected response"),
                     }
-                    _ => println!("Unexpected response"),
                 }
-            }
 
-            RequestAction::Run { input } => {
-                let source = std::fs::read_to_string(&input)?;
-                match client.run(&source)? {
-                    daemon::Response::RunResult { success, total_return, sharpe_ratio, max_drawdown, error } => {
-                        if success {
-                            println!();
-                            println!("=== Backtest Results (via daemon) ===");
-                            println!("Total Return:      {:>8.2}%", total_return * 100.0);
-                            println!("Sharpe Ratio:      {:>8.2}", sharpe_ratio);
-                            println!("Max Drawdown:      {:>8.2}%", max_drawdown * 100.0);
-                            println!();
-                        } else {
-                            println!("Run failed: {}", error.unwrap_or_default());
+                RequestAction::Run { input } => {
+                    let source = std::fs::read_to_string(&input)?;
+                    match client.run(&source).await? {
+                        daemon::Response::RunResult { success, total_return, sharpe_ratio, max_drawdown, error } => {
+                            if success {
+                                println!();
+                                println!("=== Backtest Results (via daemon) ===");
+                                println!("Total Return:      {:>8.2}%", total_return * 100.0);
+                                println!("Sharpe Ratio:      {:>8.2}", sharpe_ratio);
+                                println!("Max Drawdown:      {:>8.2}%", max_drawdown * 100.0);
+                                println!();
+                            } else {
+                                println!("Run failed: {}", error.unwrap_or_default());
+                            }
                         }
+                        _ => println!("Unexpected response"),
                     }
-                    _ => println!("Unexpected response"),
+                }
+
+                RequestAction::Status => {
+                    match client.status().await? {
+                        daemon::Response::Status { version, uptime_secs, requests_handled } => {
+                            println!("Daemon Status:");
+                            println!("  Version:  {}", version);
+                            println!("  Uptime:   {}s", uptime_secs);
+                            println!("  Requests: {}", requests_handled);
+                        }
+                        _ => println!("Unexpected response"),
+                    }
+                }
+
+                RequestAction::Shutdown => {
+                    client.shutdown().await?;
+                    println!("Daemon shutdown requested");
                 }
             }
-
-            RequestAction::Status => {
-                match client.status()? {
-                    daemon::Response::Status { version, uptime_secs, requests_handled } => {
-                        println!("Daemon Status:");
-                        println!("  Version:  {}", version);
-                        println!("  Uptime:   {}s", uptime_secs);
-                        println!("  Requests: {}", requests_handled);
-                    }
-                    _ => println!("Unexpected response"),
-                }
-            }
-
-            RequestAction::Shutdown => {
-                client.shutdown()?;
-                println!("Daemon shutdown requested");
-            }
-        }
-        return Ok(());
+            Ok(())
+        });
     }
 
-    // Initialize cache for other commands
+    // Initialize cache for other commands (only in standalone mode)
+    // In brokerless architecture, cache should only be opened when daemon is NOT running
     let cache_dir = dirs::cache_dir()
         .unwrap_or_else(|| PathBuf::from("."))
         .join("sigc");
 
-    let cache = sig_cache::Cache::open(&cache_dir)?;
-    tracing::debug!("Cache directory: {}", cache_dir.display());
+    // Try to open cache with retry/timeout to avoid lock conflicts
+    let cache = match try_open_cache_with_retry(&cache_dir, 3) {
+        Ok(c) => {
+            tracing::debug!("Cache directory: {}", cache_dir.display());
+            c
+        }
+        Err(e) => {
+            // If cache is locked, suggest using daemon mode
+            if e.to_string().contains("lock") || e.to_string().contains("WouldBlock") {
+                print_error("Cache is locked (daemon may be running). Use 'sigc request' commands to communicate with daemon.");
+                print_info("Example: sigc request compile <file>");
+                std::process::exit(1);
+            }
+            return Err(e);
+        }
+    };
 
     match cli.command {
         Some(Commands::Compile { input, emit }) => {
-            tracing::info!("Compiling: {}", input.display());
-            let source = std::fs::read_to_string(&input)?;
+            print_info(&format!("Compiling: {}", input.display()));
+
+            let source = match std::fs::read_to_string(&input) {
+                Ok(s) => s,
+                Err(e) => {
+                    print_error(&format!("Failed to read file '{}': {}", input.display(), e));
+                    std::process::exit(1);
+                }
+            };
+
             let compiler = sig_compiler::Compiler::with_cache(cache);
-            let ir = compiler.compile(&source)?;
+            let ir = match compiler.compile(&source) {
+                Ok(ir) => ir,
+                Err(e) => {
+                    print_error(&format!("Compilation failed:\n{}", e));
+                    std::process::exit(1);
+                }
+            };
 
             if let Some(output_path) = emit {
-                // TODO: Serialize IR to file
-                tracing::info!("Would emit IR to: {}", output_path.display());
+                print_info(&format!("Would emit IR to: {}", output_path.display()));
             }
 
-            tracing::info!("Compilation complete: {} nodes", ir.nodes.len());
+            print_success(&format!("Compiled {} nodes, {} outputs", ir.nodes.len(), ir.outputs.len()));
         }
 
         Some(Commands::Run { input, output }) => {
-            tracing::info!("Running: {}", input.display());
-            let source = std::fs::read_to_string(&input)?;
+            print_info(&format!("Running: {}", input.display()));
+
+            let source = match std::fs::read_to_string(&input) {
+                Ok(s) => s,
+                Err(e) => {
+                    print_error(&format!("Failed to read file '{}': {}", input.display(), e));
+                    std::process::exit(1);
+                }
+            };
+
             let compiler = sig_compiler::Compiler::new();
-            let ir = compiler.compile(&source)?;
+            let ir = match compiler.compile(&source) {
+                Ok(ir) => ir,
+                Err(e) => {
+                    print_error(&format!("Compilation failed:\n{}", e));
+                    std::process::exit(1);
+                }
+            };
 
             let mut runtime = sig_runtime::Runtime::with_cache(cache);
-            let report = runtime.run_ir(&ir)?;
+            let report = match runtime.run_ir(&ir) {
+                Ok(r) => r,
+                Err(e) => {
+                    print_error(&format!("Execution failed: {}", e));
+                    std::process::exit(1);
+                }
+            };
 
-            // Display results
+            // Display results with color
             println!();
-            println!("=== Backtest Results ===");
-            println!("Total Return:      {:>8.2}%", report.metrics.total_return * 100.0);
-            println!("Annualized Return: {:>8.2}%", report.metrics.annualized_return * 100.0);
-            println!("Sharpe Ratio:      {:>8.2}", report.metrics.sharpe_ratio);
-            println!("Max Drawdown:      {:>8.2}%", report.metrics.max_drawdown * 100.0);
-            println!("Turnover:          {:>8.2}%", report.metrics.turnover * 100.0);
+            println!("{}{}=== Backtest Results ==={}", BOLD, GREEN, RESET);
+            println!();
+
+            let ret_color = if report.metrics.total_return >= 0.0 { GREEN } else { RED };
+            println!("  Total Return:      {}{:>8.2}%{}",
+                ret_color, report.metrics.total_return * 100.0, RESET);
+            println!("  Annualized Return: {}{:>8.2}%{}",
+                ret_color, report.metrics.annualized_return * 100.0, RESET);
+
+            let sharpe_color = if report.metrics.sharpe_ratio >= 1.0 { GREEN }
+                else if report.metrics.sharpe_ratio >= 0.0 { YELLOW }
+                else { RED };
+            println!("  Sharpe Ratio:      {}{:>8.2}{}",
+                sharpe_color, report.metrics.sharpe_ratio, RESET);
+
+            let dd_color = if report.metrics.max_drawdown <= 0.1 { GREEN }
+                else if report.metrics.max_drawdown <= 0.2 { YELLOW }
+                else { RED };
+            println!("  Max Drawdown:      {}{:>8.2}%{}",
+                dd_color, report.metrics.max_drawdown * 100.0, RESET);
+
+            println!("  Turnover:          {:>8.2}%", report.metrics.turnover * 100.0);
             println!();
 
             // Export report if requested
@@ -247,7 +376,7 @@ fn main() -> Result<()> {
                             "executed_at": report.executed_at
                         });
                         std::fs::write(&output_path, serde_json::to_string_pretty(&json)?)?;
-                        println!("Report exported to: {}", output_path.display());
+                        print_success(&format!("Report exported to: {}", output_path.display()));
                     }
                     "csv" => {
                         let csv = format!(
@@ -259,19 +388,27 @@ fn main() -> Result<()> {
                             report.metrics.turnover
                         );
                         std::fs::write(&output_path, csv)?;
-                        println!("Report exported to: {}", output_path.display());
+                        print_success(&format!("Report exported to: {}", output_path.display()));
                     }
                     _ => {
-                        tracing::warn!("Unknown output format: {}", ext);
+                        print_warning(&format!("Unknown output format: {}", ext));
                     }
                 }
             }
         }
 
-        Some(Commands::Daemon { listen }) => {
+        Some(Commands::Daemon { listen, workers }) => {
             tracing::info!("Starting daemon on {}", listen);
-            let mut daemon = daemon::Daemon::new(&listen)?;
-            daemon.run()?;
+            let runtime = tokio::runtime::Runtime::new()?;
+            runtime.block_on(async {
+                let mut daemon = if let Some(pool_size) = workers {
+                    tracing::info!("Using {} runtime workers", pool_size);
+                    daemon::Daemon::with_pool_size(&listen, pool_size)?
+                } else {
+                    daemon::Daemon::new(&listen)?
+                };
+                daemon.run().await
+            })?;
         }
 
         Some(Commands::Request { .. }) => {

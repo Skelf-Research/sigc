@@ -51,7 +51,7 @@ rayon = "1.10"
 chumsky = "0.9"
 ariadne = "0.4"
 
-# RPC
+# RPC (has built-in async support via aio module)
 nng = "1.0"
 
 # Cloud storage
@@ -62,6 +62,7 @@ reqwest = { version = "0.12", features = ["json"] }
 
 # SQL databases
 postgres = "0.19"
+sqlx = { version = "0.8", features = ["runtime-tokio", "postgres", "macros"] }
 chrono = "0.4"
 
 # Internal crates

@@ -2,7 +2,6 @@
 //!
 //! Handles universe definitions, index constituents, and sector mappings.
 
-use sig_types::{Result, SigcError};
 use std::collections::{HashMap, HashSet};
 
 /// A universe of tradeable assets

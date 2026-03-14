@@ -8,6 +8,9 @@ use std::path::Path;
 use tracing::{debug, info};
 
 /// Cache manager backed by sled
+///
+/// Note: sled::Db is internally Arc-based, so Clone is cheap (reference counting)
+#[derive(Clone)]
 pub struct Cache {
     db: sled::Db,
 }

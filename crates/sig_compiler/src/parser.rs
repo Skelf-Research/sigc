@@ -14,13 +14,15 @@ pub fn parser() -> impl Parser<char, Program, Error = Simple<char>> {
     let program = blank_lines()
         .ignore_then(data_section())
         .then(params_section().or_not())
+        .then(function_def().repeated())
         .then(signal_block().repeated())
         .then(portfolio_block().repeated())
         .then_ignore(blank_lines())
         .then_ignore(end())
-        .map(|(((data, params), signals), portfolios)| Program {
+        .map(|((((data, params), functions), signals), portfolios)| Program {
             data,
             params: params.unwrap_or_default(),
+            functions,
             signals,
             portfolios,
         });
@@ -320,6 +322,37 @@ fn statement() -> impl Parser<char, Spanned<Statement>, Error = Simple<char>> {
     emit.or(assignment)
 }
 
+fn function_def() -> impl Parser<char, Spanned<FunctionDef>, Error = Simple<char>> {
+    // Function parameter: name or name=default
+    let func_param = ident()
+        .then(
+            just('=')
+                .ignore_then(
+                    number().map(Expr::Number)
+                        .or(string_literal().map(Expr::String))
+                        .or(ident().map(Expr::Ident))
+                )
+                .or_not()
+        )
+        .map(|(name, default)| FunctionParam { name, default });
+
+    // Parameter list
+    let param_list = func_param
+        .separated_by(just(',').padded())
+        .allow_trailing()
+        .delimited_by(just('('), just(')'));
+
+    // fn name(params): body
+    just("fn ")
+        .ignore_then(ident())
+        .then(param_list)
+        .then_ignore(just(':').then(nl()))
+        .then(indent().ignore_then(expr()).then_ignore(nl()))
+        .then_ignore(blank_lines())
+        .map(|((name, params), body)| FunctionDef { name, params, body })
+        .map_with_span(Spanned::new)
+}
+
 fn signal_block() -> impl Parser<char, Spanned<SignalBlock>, Error = Simple<char>> {
     just("signal ")
         .ignore_then(ident())
@@ -409,5 +442,54 @@ mod tests {
     fn test_parse_expr() {
         let result = expr().parse("x + y").unwrap();
         assert!(matches!(result.node, Expr::BinOp { op: BinOp::Add, .. }));
+    }
+
+    #[test]
+    fn test_parse_function_def() {
+        let source = r#"data:
+  prices: load csv from "data.csv"
+
+fn momentum(x, window=20):
+  x.ret(periods=1).rolling_mean(window=window)
+
+signal main:
+  result = momentum(prices)
+  emit result
+
+portfolio test:
+  weights = main
+"#;
+        let result = parser().parse(source);
+        assert!(result.is_ok(), "Parse failed: {:?}", result.err());
+        let program = result.unwrap();
+        assert_eq!(program.functions.len(), 1);
+        assert_eq!(program.functions[0].node.name, "momentum");
+        assert_eq!(program.functions[0].node.params.len(), 2);
+        assert_eq!(program.functions[0].node.params[0].name, "x");
+        assert_eq!(program.functions[0].node.params[1].name, "window");
+        assert!(program.functions[0].node.params[1].default.is_some());
+    }
+
+    #[test]
+    fn test_parse_multiple_functions() {
+        let source = r#"data:
+  prices: load csv from "data.csv"
+
+fn momentum(x, window=20):
+  x.ret(periods=1).rolling_mean(window=window)
+
+fn volatility(x, window=20):
+  x.ret(periods=1).rolling_std(window=window)
+
+signal main:
+  emit momentum(prices) / volatility(prices)
+
+portfolio test:
+  weights = main
+"#;
+        let result = parser().parse(source);
+        assert!(result.is_ok());
+        let program = result.unwrap();
+        assert_eq!(program.functions.len(), 2);
     }
 }

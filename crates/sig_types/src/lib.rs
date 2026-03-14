@@ -463,10 +463,19 @@ pub fn format_error_with_context(source: &str, span: std::ops::Range<usize>, mes
         .unwrap_or(source.len());
     let line = &source[line_start..line_end];
 
+    // Calculate underline length (at least 1, but follow span length within line)
+    let span_len = span.end.saturating_sub(span.start).max(1);
+    let underline_len = span_len.min(line.len().saturating_sub(col.saturating_sub(1))).max(1);
+
     // Build the error message
-    let mut result = format!("Error at line {}, column {}: {}\n", line_num, col, message);
-    result.push_str(&format!("  {} | {}\n", line_num, line));
-    result.push_str(&format!("  {} | {}^\n", " ".repeat(line_num.to_string().len()), " ".repeat(col.saturating_sub(1))));
+    let line_num_str = line_num.to_string();
+    let padding = " ".repeat(line_num_str.len());
+
+    let mut result = format!("error: {}\n", message);
+    result.push_str(&format!("  --> line {}:{}\n", line_num, col));
+    result.push_str(&format!("   {} |\n", padding));
+    result.push_str(&format!("   {} | {}\n", line_num_str, line));
+    result.push_str(&format!("   {} | {}{}\n", padding, " ".repeat(col.saturating_sub(1)), "^".repeat(underline_len)));
 
     result
 }

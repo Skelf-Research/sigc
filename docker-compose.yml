@@ -1,0 +1,86 @@
+version: '3.8'
+
+services:
+  sigc:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: sigc
+    ports:
+      - "8080:8080"   # API
+      - "9090:9090"   # Metrics
+    volumes:
+      - ./data:/app/data
+      - ./config:/app/config
+      - sigc-logs:/app/logs
+      - sigc-cache:/app/cache
+    environment:
+      - RUST_LOG=info
+      - SIGC_DB_HOST=postgres
+      - SIGC_DB_PORT=5432
+      - SIGC_DB_NAME=sigc
+      - SIGC_DB_USER=sigc
+      - SIGC_DB_PASSWORD=${SIGC_DB_PASSWORD:-sigc}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    command: ["daemon"]
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: sigc-postgres
+    environment:
+      - POSTGRES_USER=sigc
+      - POSTGRES_PASSWORD=${SIGC_DB_PASSWORD:-sigc}
+      - POSTGRES_DB=sigc
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sigc"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: sigc-prometheus
+    ports:
+      - "9091:9090"
+    volumes:
+      - ./deploy/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: sigc-grafana
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./deploy/grafana/dashboards:/etc/grafana/provisioning/dashboards
+      - ./deploy/grafana/datasources:/etc/grafana/provisioning/datasources
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
+      - GF_USERS_ALLOW_SIGN_UP=false
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+  prometheus-data:
+  grafana-data:
+  sigc-logs:
+  sigc-cache:
+
+networks:
+  default:
+    name: sigc-network

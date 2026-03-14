@@ -2,7 +2,7 @@
 //!
 //! Decomposes portfolio returns into factor and sector contributions.
 
-use sig_types::{Result, SigcError};
+use sig_types::Result;
 use std::collections::HashMap;
 
 /// Factor definition for attribution

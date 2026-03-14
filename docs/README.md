@@ -16,7 +16,7 @@ Core concepts and usage:
 
 - [DSL Basics](guide/dsl-basics.md) - Language syntax and structure
 - [CLI Reference](guide/cli-reference.md) - All command-line options
-- Data Loading *(coming soon)* - CSV, Parquet, S3 sources
+- [Data Loading](guide/data-loading.md) - CSV, Parquet, S3, PostgreSQL sources
 - Portfolio Construction *(coming soon)* - Weight calculation
 - Backtesting *(coming soon)* - Running simulations
 
@@ -33,12 +33,12 @@ Step-by-step learning:
 
 For power users:
 
-- Cost Models *(coming soon)* - Transaction costs
+- **[Production Features](advanced/production-features.md)** - Constraints, attribution, parallel execution
+- **[Cost Models](advanced/cost-models.md)** - Transaction costs and slippage
+- **[Python Integration](advanced/python-integration.md)** - pysigc notebooks
 - Walk-Forward Validation *(coming soon)* - Out-of-sample testing
 - Universe Management *(coming soon)* - Sectors and filters
-- Python Integration *(coming soon)* - pysigc notebooks
 - Daemon Mode *(coming soon)* - Service deployment
-- Observability *(coming soon)* - Metrics and logging
 
 ## Reference
 
@@ -108,6 +108,10 @@ sigc explain strategy.sig
 - Run `sigc --help` for CLI help
 - Check [Error Messages](reference/operators-table.md#common-issues) for troubleshooting
 - Open issues at [GitHub](https://github.com/anthropics/sigc/issues)
+
+## Roadmap
+
+See the **[Production Roadmap](ROADMAP.md)** for planned features and implementation phases.
 
 ## Contributing
 
