@@ -4,7 +4,7 @@ This document describes the syntax and semantics of the sigc DSL.
 
 ## Program Structure
 
-A sigc program consists of four main sections:
+A sigc program consists of six main sections (in order):
 
 ```
 data:
@@ -12,6 +12,12 @@ data:
 
 params:
   <parameter definitions>
+
+macro <name>(<typed params>):
+  <macro body>
+
+fn <name>(<params>):
+  <expression>
 
 signal <name>:
   <computations>
@@ -49,6 +55,43 @@ params:
 ```
 
 Parameters can be used anywhere in expressions and are optimizable via GridSearch.
+
+## Macro Section
+
+Define reusable signal patterns with typed parameters:
+
+```
+macro momentum_signal(px: expr, lookback: number = 20):
+  let r = ret(px, lookback)
+  let normalized = zscore(r)
+  emit normalized
+```
+
+Parameter types:
+- `expr` - Any expression (data, signals)
+- `number` - Numeric value
+- `string` - String literal
+- `ident` - Identifier name
+
+Macro body:
+- `let name = expression` - Define intermediate variable
+- `emit expression` - Final output
+
+## Function Section
+
+Define reusable single-expression functions:
+
+```
+fn sharpe_ratio(x, window=60):
+  rolling_mean(ret(x, 1), window) / rolling_std(ret(x, 1), window)
+
+fn volatility(x, window=20):
+  rolling_std(ret(x, 1), window)
+```
+
+- Parameters can have default values
+- Body is a single expression
+- Functions can call other functions
 
 ## Signal Section
 

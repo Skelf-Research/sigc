@@ -42,7 +42,7 @@
   - [x] Backtesting best practices
   - [x] Risk management techniques
   - [x] Production deployment guide
-- [ ] Example strategies library
+- [x] Example strategies library (23 strategies across 6 categories)
 - [ ] Video tutorials (planned)
 - [ ] Interactive notebooks
 
@@ -89,9 +89,10 @@
 - [x] Custom function definitions
 - [x] Improved error messages with source locations
 - [x] Diagnostics system for IDE integration
-- [ ] Type inference enhancements (future)
-- [ ] Macro system for patterns (future)
-- [ ] VS Code extension (future)
+- [x] VS Code extension with syntax highlighting, snippets, and commands
+- [x] LSP server (sigc-lsp) with hover, completion, go-to-definition
+- [x] Type inference system with operator signatures and arity checking
+- [x] Macro system for reusable patterns (8 built-in macros)
 - [x] **Documentation**: Chapter 10 - Language Enhancements
 
 ---
@@ -148,9 +149,6 @@ Potential areas for future development:
 
 - Additional data vendors (Bloomberg, Refinitiv)
 - More broker integrations (Interactive Brokers, TD Ameritrade)
-- Type inference improvements
-- Macro system for common patterns
-- VS Code extension
 - Kafka streaming integration
 - Machine learning integration
 - Cloud-native deployment options
@@ -169,6 +167,8 @@ Potential areas for future development:
 | 0.6.0 | Phase 6 | Complete | 217 |
 | 0.7.0 | Phase 7 | Complete | 223 |
 | 0.8.0 | Phase 8 | Complete | 231 |
+| 0.9.0 | Strategies + Tooling | Complete | 328 |
+| 0.10.0 | Type System + Macros | Complete | 330 |
 
 ---
 

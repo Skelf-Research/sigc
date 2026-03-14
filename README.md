@@ -53,6 +53,16 @@ params:
   lookback = 10
   top_pct = 0.2
 
+// Custom function
+fn volatility(x, window=20):
+  rolling_std(ret(x, 1), window)
+
+// Macro for reusable pattern
+macro vol_adj_momentum(px: expr, ret_window: number = 20, vol_window: number = 60):
+  let r = ret(px, ret_window)
+  let vol = rolling_std(r, vol_window)
+  emit zscore(r / vol)
+
 signal momentum:
   returns = ret(prices, lookback)
   score = zscore(returns)
@@ -115,18 +125,38 @@ let visualizer = ReportVisualizer::new();
 visualizer.save_html(&report, &returns, "report.html")?;
 ```
 
+## IDE Support
+
+**VS Code Extension** (`editors/vscode/`)
+- Syntax highlighting for .sig files
+- 25+ code snippets for common patterns
+- Compile, Run, and Explain commands
+- Language server integration
+
+**Language Server** (`sigc-lsp`)
+- Real-time error diagnostics
+- Hover documentation for 50+ operators
+- Code completion with snippets
+- Go-to-definition for signals, functions, macros
+- Document outline
+
+```bash
+# Build and install
+cd editors/vscode && npm install && npm run compile
+npx @vscode/vsce package
+# Install sigc-0.1.0.vsix in VS Code
+```
+
 ## Project status
 
 **Completed:**
-- Phase 1: Foundations (workspace, types, caching, connectors)
-- Phase 2: Compiler (parser, type inference, 60+ operators, IR)
-- Phase 3: Runtime (data loading, 60+ kernels, backtester, Panel data, GridSearch, PyO3)
-- Phase 4: Services (daemon mode, PyO3 adapter)
+- Phase 1-8: All core features (see [ROADMAP.md](ROADMAP.md))
+- 23 example strategies across 6 categories
+- Type inference system with operator signatures
+- Macro system for reusable patterns
+- VS Code extension with LSP support
 
-**In Progress:**
-- Phase 5: Quality bar (integration tests, benchmarks, reporting, CI/CD, documentation)
-
-See [`docs/build-roadmap.md`](docs/build-roadmap.md) for the full implementation roadmap.
+See [ROADMAP.md](ROADMAP.md) for the full implementation status.
 
 ## Documentation
 

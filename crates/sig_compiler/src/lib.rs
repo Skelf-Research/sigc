@@ -164,6 +164,13 @@ struct UserFunction {
     body: ast::Spanned<ast::Expr>,
 }
 
+/// User-defined macro stored for expansion
+#[derive(Clone)]
+struct UserMacro {
+    params: Vec<ast::MacroParam>,
+    body: Vec<ast::Spanned<ast::MacroStatement>>,
+}
+
 /// IR lowering state
 struct IrLowering {
     nodes: Vec<IrNode>,
@@ -171,6 +178,7 @@ struct IrLowering {
     next_id: u64,
     symbols: HashMap<String, u64>,
     user_functions: HashMap<String, UserFunction>,
+    user_macros: HashMap<String, UserMacro>,
 }
 
 impl IrLowering {
@@ -181,6 +189,7 @@ impl IrLowering {
             next_id: 0,
             symbols: HashMap::new(),
             user_functions: HashMap::new(),
+            user_macros: HashMap::new(),
         }
     }
 
@@ -201,6 +210,17 @@ impl IrLowering {
         for data in &program.data {
             let id = self.alloc_id();
             self.symbols.insert(data.node.name.clone(), id);
+        }
+
+        // Register user-defined macros
+        for mac in &program.macros {
+            self.user_macros.insert(
+                mac.node.name.clone(),
+                UserMacro {
+                    params: mac.node.params.clone(),
+                    body: mac.node.body.clone(),
+                },
+            );
         }
 
         // Register user-defined functions

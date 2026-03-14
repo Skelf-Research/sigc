@@ -84,8 +84,10 @@ A comprehensive educational resource for quantitative finance with sigc.
 
 10. **[Language Enhancements](10-language-enhancements.md)**
     - Custom function definitions
-    - Improved error messages
-    - IDE integration and diagnostics
+    - Macro system for reusable patterns
+    - Type inference and operator signatures
+    - VS Code extension and LSP server
+    - Improved error messages with diagnostics
 
 11. **[External Integrations](11-integrations.md)**
     - Market data providers (Yahoo Finance)

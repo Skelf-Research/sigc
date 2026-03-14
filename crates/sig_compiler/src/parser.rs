@@ -14,14 +14,16 @@ pub fn parser() -> impl Parser<char, Program, Error = Simple<char>> {
     let program = blank_lines()
         .ignore_then(data_section())
         .then(params_section().or_not())
+        .then(macro_def().repeated())
         .then(function_def().repeated())
         .then(signal_block().repeated())
         .then(portfolio_block().repeated())
         .then_ignore(blank_lines())
         .then_ignore(end())
-        .map(|((((data, params), functions), signals), portfolios)| Program {
+        .map(|(((((data, params), macros), functions), signals), portfolios)| Program {
             data,
             params: params.unwrap_or_default(),
+            macros,
             functions,
             signals,
             portfolios,
@@ -322,6 +324,70 @@ fn statement() -> impl Parser<char, Spanned<Statement>, Error = Simple<char>> {
     emit.or(assignment)
 }
 
+/// Parse a macro definition
+/// Syntax: macro name(param: type, ...):
+///           let x = expr
+///           emit expr
+fn macro_def() -> impl Parser<char, Spanned<MacroDef>, Error = Simple<char>> {
+    // Parameter type annotation
+    let param_kind = just("expr").to(MacroParamKind::Expr)
+        .or(just("number").to(MacroParamKind::Number))
+        .or(just("string").to(MacroParamKind::String))
+        .or(just("ident").to(MacroParamKind::Ident));
+
+    // Macro parameter: name: type or name: type = default
+    let macro_param = ident()
+        .then_ignore(just(':').padded())
+        .then(param_kind)
+        .then(
+            just('=')
+                .padded()
+                .ignore_then(
+                    number().map(MacroValue::Number)
+                        .or(string_literal().map(MacroValue::String))
+                        .or(ident().map(MacroValue::Ident))
+                )
+                .or_not()
+        )
+        .map(|((name, kind), default)| MacroParam { name, kind, default });
+
+    // Parameter list
+    let param_list = macro_param
+        .separated_by(just(',').padded())
+        .allow_trailing()
+        .delimited_by(just('('), just(')'));
+
+    // Macro statement: let x = expr or emit expr
+    let macro_let = indent()
+        .ignore_then(just("let "))
+        .ignore_then(ident())
+        .then_ignore(ws().then(just('=')).then(ws()))
+        .then(expr())
+        .then_ignore(nl())
+        .map(|(name, value)| MacroStatement::Let { name, value: value.node })
+        .map_with_span(Spanned::new);
+
+    let macro_emit = indent()
+        .ignore_then(just("emit "))
+        .ignore_then(expr())
+        .then_ignore(nl())
+        .map(|e| MacroStatement::Emit(e.node))
+        .map_with_span(Spanned::new);
+
+    let macro_stmt = macro_let.or(macro_emit);
+
+    // macro name(params):
+    //   body
+    just("macro ")
+        .ignore_then(ident())
+        .then(param_list)
+        .then_ignore(just(':').then(nl()))
+        .then(macro_stmt.repeated().at_least(1))
+        .then_ignore(blank_lines())
+        .map(|((name, params), body)| MacroDef { name, params, body })
+        .map_with_span(Spanned::new)
+}
+
 fn function_def() -> impl Parser<char, Spanned<FunctionDef>, Error = Simple<char>> {
     // Function parameter: name or name=default
     let func_param = ident()
@@ -491,5 +557,58 @@ portfolio test:
         assert!(result.is_ok());
         let program = result.unwrap();
         assert_eq!(program.functions.len(), 2);
+    }
+
+    #[test]
+    fn test_parse_macro_def() {
+        let source = r#"data:
+  prices: load csv from "data.csv"
+
+macro momentum_signal(px: expr, lookback: number = 20):
+  let r = ret(px, lookback)
+  emit zscore(r)
+
+signal main:
+  emit prices
+
+portfolio test:
+  weights = main
+"#;
+        let result = parser().parse(source);
+        assert!(result.is_ok(), "Parse failed: {:?}", result.err());
+        let program = result.unwrap();
+        assert_eq!(program.macros.len(), 1);
+        assert_eq!(program.macros[0].node.name, "momentum_signal");
+        assert_eq!(program.macros[0].node.params.len(), 2);
+        assert_eq!(program.macros[0].node.params[0].name, "px");
+        assert_eq!(program.macros[0].node.params[0].kind, MacroParamKind::Expr);
+        assert_eq!(program.macros[0].node.params[1].name, "lookback");
+        assert_eq!(program.macros[0].node.params[1].kind, MacroParamKind::Number);
+        assert!(program.macros[0].node.params[1].default.is_some());
+        assert_eq!(program.macros[0].node.body.len(), 2);
+    }
+
+    #[test]
+    fn test_parse_macro_with_multiple_params() {
+        let source = r#"data:
+  prices: load csv from "data.csv"
+
+macro trend_signal(px: expr, fast: number = 10, slow: number = 50):
+  let fast_ma = ema(px, fast)
+  let slow_ma = ema(px, slow)
+  emit zscore(fast_ma - slow_ma)
+
+signal main:
+  emit prices
+
+portfolio test:
+  weights = main
+"#;
+        let result = parser().parse(source);
+        assert!(result.is_ok(), "Parse failed: {:?}", result.err());
+        let program = result.unwrap();
+        assert_eq!(program.macros.len(), 1);
+        assert_eq!(program.macros[0].node.params.len(), 3);
+        assert_eq!(program.macros[0].node.body.len(), 3);
     }
 }

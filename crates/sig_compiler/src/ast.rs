@@ -23,9 +23,57 @@ impl<T> Spanned<T> {
 pub struct Program {
     pub data: Vec<Spanned<DataDecl>>,
     pub params: Vec<Spanned<ParamDecl>>,
+    pub macros: Vec<Spanned<MacroDef>>,
     pub functions: Vec<Spanned<FunctionDef>>,
     pub signals: Vec<Spanned<SignalBlock>>,
     pub portfolios: Vec<Spanned<PortfolioBlock>>,
+}
+
+/// Macro definition for reusable patterns
+#[derive(Debug, Clone)]
+pub struct MacroDef {
+    pub name: String,
+    pub params: Vec<MacroParam>,
+    pub body: Vec<Spanned<MacroStatement>>,
+}
+
+/// Macro parameter with optional default
+#[derive(Debug, Clone)]
+pub struct MacroParam {
+    pub name: String,
+    pub kind: MacroParamKind,
+    pub default: Option<MacroValue>,
+}
+
+/// Type of macro parameter
+#[derive(Debug, Clone, PartialEq)]
+pub enum MacroParamKind {
+    /// Expression parameter (e.g., a signal value)
+    Expr,
+    /// Numeric parameter (e.g., window size)
+    Number,
+    /// String parameter (e.g., column name)
+    String,
+    /// Identifier parameter (e.g., variable name)
+    Ident,
+}
+
+/// Value that can be passed to a macro
+#[derive(Debug, Clone)]
+pub enum MacroValue {
+    Expr(Expr),
+    Number(f64),
+    String(String),
+    Ident(String),
+}
+
+/// Statement within a macro body
+#[derive(Debug, Clone)]
+pub enum MacroStatement {
+    /// Variable assignment
+    Let { name: String, value: Expr },
+    /// Expression to emit
+    Emit(Expr),
 }
 
 /// User-defined function definition
