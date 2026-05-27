@@ -20,6 +20,7 @@ pub mod factors;
 pub mod incremental;
 pub mod integrations;
 pub mod kernels;
+pub mod market_data;
 pub mod metrics;
 pub mod mmap_data;
 pub mod optimize;
@@ -56,6 +57,11 @@ pub use reporting::{Attribution, ReportExporter};
 pub use universe::{Universe, UniverseManager, DynamicUniverse, MarketCapCategory};
 pub use viz::{ChartGenerator, ReportVisualizer};
 pub use walk_forward::{WalkForward, WalkForwardConfig, WalkForwardResult, FoldResult};
+pub use market_data::{
+    Bars, parse_stooq_csv, parse_ken_french, parse_yahoo_chart_json, yyyymmdd_to_unix,
+    build_price_panel, write_parquet, fetch_stooq, fetch_yahoo, fetch_yahoo_panel,
+    fetch_stooq_panel,
+};
 pub use rigor::{
     ReturnStats, RigorReport, Haircut, PboResult, probabilistic_sharpe_ratio,
     deflated_sharpe_ratio, expected_max_sharpe, min_track_record_length, bonferroni_haircut,

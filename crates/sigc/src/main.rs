@@ -107,6 +107,34 @@ enum Commands {
         trials: usize,
     },
 
+    /// Fetch a daily price panel into a parquet file
+    Fetch {
+        /// Comma-separated symbols. Yahoo: plain tickers ("AAPL,MSFT");
+        /// Stooq: suffixed ("aapl.us,msft.us").
+        #[arg(long)]
+        symbols: String,
+
+        /// Data provider
+        #[arg(long, default_value = "yahoo", value_parser = ["yahoo", "stooq"])]
+        source: String,
+
+        /// Stooq API key (or set STOOQ_APIKEY). Ignored for Yahoo.
+        #[arg(long)]
+        apikey: Option<String>,
+
+        /// Start date, YYYYMMDD
+        #[arg(long, default_value = "20150101")]
+        start: String,
+
+        /// End date, YYYYMMDD
+        #[arg(long, default_value = "20241231")]
+        end: String,
+
+        /// Output parquet path
+        #[arg(short, long, default_value = "data/prices.parquet")]
+        out: PathBuf,
+    },
+
     /// Start the daemon server
     Daemon {
         /// Listen address (tcp://host:port)
@@ -439,6 +467,54 @@ fn main() -> Result<()> {
                     _ => {
                         print_warning(&format!("Unknown output format: {}", ext));
                     }
+                }
+            }
+        }
+
+        Some(Commands::Fetch { symbols, source, apikey, start, end, out }) => {
+            let syms: Vec<String> = symbols
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect();
+            if syms.is_empty() {
+                print_error("no symbols provided (use --symbols \"AAPL,MSFT\")");
+                std::process::exit(1);
+            }
+            print_info(&format!(
+                "Fetching {} symbol(s) from {} ({}..{})",
+                syms.len(), source, start, end
+            ));
+            let fetched = match source.as_str() {
+                "stooq" => {
+                    let key = apikey.or_else(|| std::env::var("STOOQ_APIKEY").ok());
+                    if key.is_none() {
+                        print_warning("Stooq requires an API key; set --apikey or STOOQ_APIKEY");
+                    }
+                    sig_runtime::fetch_stooq_panel(&syms, &start, &end, key.as_deref())
+                }
+                _ => sig_runtime::fetch_yahoo_panel(&syms, &start, &end),
+            };
+            let mut df = match fetched {
+                Ok(df) => df,
+                Err(e) => {
+                    print_error(&format!("Fetch failed: {}", e));
+                    std::process::exit(1);
+                }
+            };
+            if let Some(parent) = out.parent() {
+                if !parent.as_os_str().is_empty() {
+                    let _ = std::fs::create_dir_all(parent);
+                }
+            }
+            match sig_runtime::write_parquet(&mut df, &out.to_string_lossy()) {
+                Ok(()) => print_success(&format!(
+                    "Wrote {} rows x {} columns to {}",
+                    df.height(), df.width(), out.display()
+                )),
+                Err(e) => {
+                    print_error(&format!("Write failed: {}", e));
+                    std::process::exit(1);
                 }
             }
         }
