@@ -11,7 +11,7 @@ pub use diagnostics::{Diagnostic, DiagnosticCollector, Severity, Position, Locat
 use chumsky::Parser;
 use sig_types::{
     DataDecl as IrDataDecl, DType, Ir, IrMetadata, IrNode, Operator, ParamDecl as IrParamDecl,
-    Result, Shape, SigcError, TypeAnnotation,
+    Result, Shape, SigcError, Temporal, TypeAnnotation,
 };
 use std::collections::HashMap;
 
@@ -171,6 +171,19 @@ struct UserMacro {
     body: Vec<ast::Spanned<ast::MacroStatement>>,
 }
 
+/// Evaluate a compile-time constant numeric expression (literal or negated
+/// literal). Used to read keyword arguments such as `periods=-1`, which the
+/// parser represents as a unary negation of a number rather than a bare
+/// `Number`. Without this, a negative period would silently fall back to the
+/// default and a look-ahead bug would never surface.
+fn const_number(expr: &ast::Expr) -> Option<f64> {
+    match expr {
+        ast::Expr::Number(n) => Some(*n),
+        ast::Expr::UnaryOp { op: ast::UnaryOp::Neg, expr } => const_number(&expr.node).map(|v| -v),
+        _ => None,
+    }
+}
+
 /// IR lowering state
 struct IrLowering {
     nodes: Vec<IrNode>,
@@ -179,6 +192,10 @@ struct IrLowering {
     symbols: HashMap<String, u64>,
     user_functions: HashMap<String, UserFunction>,
     user_macros: HashMap<String, UserMacro>,
+    /// Future-read horizon (`peek`) per node id — drives look-ahead detection.
+    /// Ids without an entry (constants, params, data sources) are point-in-time
+    /// safe by definition (`peek = 0`).
+    peek: HashMap<u64, i64>,
 }
 
 impl IrLowering {
@@ -190,6 +207,7 @@ impl IrLowering {
             symbols: HashMap::new(),
             user_functions: HashMap::new(),
             user_macros: HashMap::new(),
+            peek: HashMap::new(),
         }
     }
 
@@ -197,6 +215,28 @@ impl IrLowering {
         let id = self.next_id;
         self.next_id += 1;
         id
+    }
+
+    /// Push an IR node, propagating the temporal availability type:
+    /// `out_peek = max(input peeks) + operator.temporal_shift()`.
+    fn push_node(&mut self, id: u64, operator: Operator, inputs: Vec<u64>) {
+        let in_peek = inputs
+            .iter()
+            .map(|i| self.peek.get(i).copied().unwrap_or(0))
+            .max()
+            .unwrap_or(0);
+        let out_peek = in_peek + operator.temporal_shift();
+        self.peek.insert(id, out_peek);
+        self.nodes.push(IrNode {
+            id,
+            operator,
+            inputs,
+            type_info: TypeAnnotation {
+                dtype: DType::Float64,
+                shape: Shape::scalar(),
+                temporal: Temporal::with_peek(out_peek),
+            },
+        });
     }
 
     fn lower_program(&mut self, program: &Program) -> Result<()> {
@@ -259,6 +299,20 @@ impl IrLowering {
         }
 
         if let Some(id) = last_emit {
+            // Look-ahead-bias check: an emitted signal must be point-in-time
+            // safe. If it transitively reads any future bar, reject at compile
+            // time rather than letting the backtest silently report an
+            // unattainable result.
+            let peek = self.peek.get(&id).copied().unwrap_or(0);
+            if peek > 0 {
+                return Err(SigcError::Type(format!(
+                    "look-ahead bias: signal '{}' reads {} bar(s) of future data. \
+                     A forward-looking operator (e.g. lag/ret/delta with a negative \
+                     period) references bars not yet observable at decision time. \
+                     Emitted signals must be point-in-time safe (peek <= 0).",
+                    signal.name, peek
+                )));
+            }
             self.symbols.insert(signal.name.clone(), id);
             self.outputs.push(id);
         }
@@ -307,15 +361,7 @@ impl IrLowering {
                     ast::BinOp::Div => Operator::Div,
                 };
 
-                self.nodes.push(IrNode {
-                    id,
-                    operator,
-                    inputs: vec![left_id, right_id],
-                    type_info: TypeAnnotation {
-                        dtype: DType::Float64,
-                        shape: Shape::scalar(),
-                    },
-                });
+                self.push_node(id, operator, vec![left_id, right_id]);
 
                 Ok(id)
             }
@@ -324,15 +370,7 @@ impl IrLowering {
                 let expr_id = self.lower_expr(&expr.node)?;
                 let id = self.alloc_id();
 
-                self.nodes.push(IrNode {
-                    id,
-                    operator: Operator::Mul, // -x = -1 * x
-                    inputs: vec![expr_id],
-                    type_info: TypeAnnotation {
-                        dtype: DType::Float64,
-                        shape: Shape::scalar(),
-                    },
-                });
+                self.push_node(id, Operator::Mul, vec![expr_id]); // -x = -1 * x
 
                 Ok(id)
             }
@@ -353,15 +391,7 @@ impl IrLowering {
                 let id = self.alloc_id();
                 let operator = self.func_to_operator(func, &kwargs)?;
 
-                self.nodes.push(IrNode {
-                    id,
-                    operator,
-                    inputs: arg_ids,
-                    type_info: TypeAnnotation {
-                        dtype: DType::Float64,
-                        shape: Shape::scalar(),
-                    },
-                });
+                self.push_node(id, operator, arg_ids);
 
                 Ok(id)
             }
@@ -381,15 +411,7 @@ impl IrLowering {
                 let id = self.alloc_id();
                 let operator = self.method_to_operator(method, &kwargs)?;
 
-                self.nodes.push(IrNode {
-                    id,
-                    operator,
-                    inputs: arg_ids,
-                    type_info: TypeAnnotation {
-                        dtype: DType::Float64,
-                        shape: Shape::scalar(),
-                    },
-                });
+                self.push_node(id, operator, arg_ids);
 
                 Ok(id)
             }
@@ -624,11 +646,10 @@ impl IrLowering {
     fn get_int_kwarg(&self, kwargs: &[(String, ast::Spanned<ast::Expr>)], name: &str) -> Option<i32> {
         kwargs.iter().find_map(|(k, v)| {
             if k == name {
-                if let ast::Expr::Number(n) = &v.node {
-                    return Some(*n as i32);
-                }
+                const_number(&v.node).map(|n| n as i32)
+            } else {
+                None
             }
-            None
         })
     }
 
@@ -639,11 +660,10 @@ impl IrLowering {
     ) -> Option<f64> {
         kwargs.iter().find_map(|(k, v)| {
             if k == name {
-                if let ast::Expr::Number(n) = &v.node {
-                    return Some(*n);
-                }
+                const_number(&v.node)
+            } else {
+                None
             }
-            None
         })
     }
 

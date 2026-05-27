@@ -28,6 +28,7 @@ pub mod parallel;
 pub mod portfolio_opt;
 pub mod regime;
 pub mod reporting;
+pub mod rigor;
 pub mod result_store;
 pub mod risk_models;
 pub mod safety;
@@ -55,6 +56,11 @@ pub use reporting::{Attribution, ReportExporter};
 pub use universe::{Universe, UniverseManager, DynamicUniverse, MarketCapCategory};
 pub use viz::{ChartGenerator, ReportVisualizer};
 pub use walk_forward::{WalkForward, WalkForwardConfig, WalkForwardResult, FoldResult};
+pub use rigor::{
+    ReturnStats, RigorReport, Haircut, PboResult, probabilistic_sharpe_ratio,
+    deflated_sharpe_ratio, expected_max_sharpe, min_track_record_length, bonferroni_haircut,
+    holm_adjust, bhy_adjust, permutation_sharpe_pvalue, pbo_cscv, norm_cdf, norm_ppf,
+};
 pub use audit::{AuditLogger, AuditEvent, AuditEntry, audit_log, init_audit_logger};
 pub use benchmark::BenchmarkAnalyzer;
 pub use metrics::{MetricsRegistry, Timer, metrics};

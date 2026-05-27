@@ -99,6 +99,12 @@ enum Commands {
         /// Output report file (json or csv)
         #[arg(short, long)]
         output: Option<PathBuf>,
+
+        /// Number of strategy/parameter configurations searched to reach this
+        /// one. Used to deflate the Sharpe ratio for multiple testing (1 = no
+        /// search). See the "Statistical Rigor" section in the output.
+        #[arg(long, default_value = "1")]
+        trials: usize,
     },
 
     /// Start the daemon server
@@ -304,7 +310,7 @@ fn main() -> Result<()> {
             print_success(&format!("Compiled {} nodes, {} outputs", ir.nodes.len(), ir.outputs.len()));
         }
 
-        Some(Commands::Run { input, output }) => {
+        Some(Commands::Run { input, output, trials }) => {
             print_info(&format!("Running: {}", input.display()));
 
             let source = match std::fs::read_to_string(&input) {
@@ -359,6 +365,37 @@ fn main() -> Result<()> {
             println!("  Turnover:          {:>8.2}%", report.metrics.turnover * 100.0);
             println!();
 
+            // --- Statistical rigor -------------------------------------------------
+            // A raw Sharpe ignores non-normality, sample length, and how many
+            // configurations were searched. Report the honest, deflated view.
+            let rigor = sig_runtime::RigorReport::compute(
+                &report.returns_series,
+                trials,
+                0.0, // no trial-Sharpe variance available from a single run
+                252.0,
+            );
+            println!("{}{}=== Statistical Rigor ==={}", BOLD, GREEN, RESET);
+            println!();
+            let psr_color = if rigor.psr >= 0.95 { GREEN } else if rigor.psr >= 0.9 { YELLOW } else { RED };
+            println!("  Prob. Sharpe Ratio:{}{:>8.2}{}  (P[true Sharpe > 0])",
+                psr_color, rigor.psr, RESET);
+            if trials > 1 {
+                let dsr_color = if rigor.deflated_sharpe >= 0.95 { GREEN }
+                    else if rigor.deflated_sharpe >= 0.9 { YELLOW } else { RED };
+                println!("  Deflated Sharpe:   {}{:>8.2}{}  (deflated for {} trials)",
+                    dsr_color, rigor.deflated_sharpe, RESET, trials);
+                println!("  Haircut Sharpe:    {:>8.2}   ({:.0}% haircut, Bonferroni)",
+                    rigor.haircut.haircut_sharpe, rigor.haircut.haircut_pct * 100.0);
+            }
+            let p_color = if rigor.permutation_pvalue <= 0.05 { GREEN } else { RED };
+            println!("  Permutation p-val: {}{:>8.3}{}  (1000 sign-flips)",
+                p_color, rigor.permutation_pvalue, RESET);
+            match rigor.min_track_record {
+                Some(n) => println!("  Min Track Record:  {:>8.0}   periods for 95% confidence", n),
+                None => println!("  Min Track Record:  {:>8}   (Sharpe <= 0; never significant)", "n/a"),
+            }
+            println!();
+
             // Export report if requested
             if let Some(output_path) = output {
                 let ext = output_path.extension().and_then(|s| s.to_str()).unwrap_or("");
@@ -372,6 +409,15 @@ fn main() -> Result<()> {
                                 "sharpe_ratio": report.metrics.sharpe_ratio,
                                 "max_drawdown": report.metrics.max_drawdown,
                                 "turnover": report.metrics.turnover
+                            },
+                            "rigor": {
+                                "trials": trials,
+                                "probabilistic_sharpe_ratio": rigor.psr,
+                                "deflated_sharpe_ratio": rigor.deflated_sharpe,
+                                "haircut_sharpe": rigor.haircut.haircut_sharpe,
+                                "haircut_pct": rigor.haircut.haircut_pct,
+                                "permutation_pvalue": rigor.permutation_pvalue,
+                                "min_track_record_length": rigor.min_track_record
                             },
                             "executed_at": report.executed_at
                         });

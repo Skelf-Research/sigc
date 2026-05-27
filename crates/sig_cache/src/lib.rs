@@ -147,6 +147,7 @@ mod tests {
                     type_info: TypeAnnotation {
                         dtype: DType::Float64,
                         shape: Shape::scalar(),
+                        temporal: sig_types::Temporal::pit(),
                     },
                 },
             ],

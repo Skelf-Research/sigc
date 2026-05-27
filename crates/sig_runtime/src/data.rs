@@ -252,8 +252,18 @@ impl DataLoader {
 
     /// Create a sample price DataFrame for testing
     pub fn sample_prices(n_dates: usize, n_assets: usize) -> Result<DataFrame> {
-        use rand::Rng;
-        let mut rng = rand::thread_rng();
+        // Fixed seed so the synthetic fallback is reproducible — a backtest
+        // that lands here must still give identical results across runs.
+        Self::sample_prices_seeded(n_dates, n_assets, 0x5165_C0DE)
+    }
+
+    /// Deterministic synthetic random-walk prices. Identical `seed` yields
+    /// byte-identical data, which is what makes backtests on the synthetic
+    /// fallback path reproducible (see `tests/reproducibility.rs`).
+    pub fn sample_prices_seeded(n_dates: usize, n_assets: usize, seed: u64) -> Result<DataFrame> {
+        use rand::rngs::StdRng;
+        use rand::{Rng, SeedableRng};
+        let mut rng = StdRng::seed_from_u64(seed);
 
         // Generate dates
         let dates: Vec<i32> = (0..n_dates as i32).collect();

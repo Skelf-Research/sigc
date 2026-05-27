@@ -38,11 +38,64 @@ impl Shape {
     }
 }
 
-/// Type annotation combining dtype and shape
+/// Temporal availability type — tracks look-ahead bias relative to the bar at
+/// which a value is indexed.
+///
+/// `peek` is the maximum number of bars **into the future** (relative to a
+/// value's own time index `t`) that the computation reads. A point-in-time
+/// safe value reads only the current and past bars, so `peek <= 0`. Any
+/// `peek > 0` means the value depends on information that is not yet
+/// observable at `t` — i.e. look-ahead bias.
+///
+/// The lowering pass propagates `peek` through the IR; emitted signals are
+/// required to satisfy `peek <= 0`, which makes look-ahead bias a *compile
+/// error* rather than a silently-passing backtest.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Archive, Serialize, Deserialize)]
+pub struct Temporal {
+    /// Max bars into the future this value reads (0 = only same-bar data).
+    pub peek: i64,
+}
+
+impl Temporal {
+    /// A point-in-time safe value (reads only current/past data).
+    pub fn pit() -> Self {
+        Temporal { peek: 0 }
+    }
+
+    /// Construct from an explicit peek (future-read horizon, in bars).
+    pub fn with_peek(peek: i64) -> Self {
+        Temporal { peek }
+    }
+
+    /// True if this value reads future information (look-ahead bias).
+    pub fn is_leaky(&self) -> bool {
+        self.peek > 0
+    }
+}
+
+impl Default for Temporal {
+    fn default() -> Self {
+        Temporal::pit()
+    }
+}
+
+/// Type annotation combining dtype, shape, and temporal availability.
 #[derive(Debug, Clone, PartialEq, Eq, Archive, Serialize, Deserialize)]
 pub struct TypeAnnotation {
     pub dtype: DType,
     pub shape: Shape,
+    /// Point-in-time availability of this value (look-ahead-bias tracking).
+    pub temporal: Temporal,
+}
+
+impl Default for TypeAnnotation {
+    fn default() -> Self {
+        TypeAnnotation {
+            dtype: DType::Float64,
+            shape: Shape::scalar(),
+            temporal: Temporal::pit(),
+        }
+    }
 }
 
 /// Operator types in the IR
@@ -866,6 +919,30 @@ impl Operator {
                 sig.arity.expected_str(),
                 input_count
             ))
+        }
+    }
+
+    /// How this operator shifts the *future-read horizon* (`peek`) of its
+    /// inputs, in bars. The output `peek` is `max(input peeks) + temporal_shift`.
+    ///
+    /// Almost every operator is point-in-time (shift `0`): it reads the current
+    /// bar (arithmetic, cross-sectional ops) or a *backward* window
+    /// (rolling/EMA/technical indicators). The only way to introduce a forward
+    /// read is a negative-period shift/return/difference, i.e. referencing a
+    /// future bar:
+    ///   - `lag(x, k)` outputs `x[t-k]`, contributing a shift of `-k`
+    ///     (positive `k` looks back and is safe; negative `k` is a *lead*).
+    ///   - `ret(x, n)` / `delta(x, n)` read `x[t]` and `x[t-n]`; the future
+    ///     horizon they add is `max(0, -n)` (safe for `n > 0`).
+    pub fn temporal_shift(&self) -> i64 {
+        match self {
+            Operator::Lag { periods } => -(*periods as i64),
+            Operator::Ret { periods } | Operator::Delta { periods } => {
+                std::cmp::max(0, -(*periods as i64))
+            }
+            // All other operators read only the current bar or a backward
+            // window, so they never introduce a forward read.
+            _ => 0,
         }
     }
 
