@@ -95,50 +95,48 @@ impl Backtester {
             .map(|s| s.to_string())
             .collect();
 
+        // One-bar execution lag: the position decided at the close of bar
+        // t can only earn the return from bar t+1, so portfolio return at
+        // bar t is `weights[t-1] . returns[t]`. Using same-bar weights *and*
+        // returns would be the textbook look-ahead bias.
         for t in 0..n_rows {
-            let mut period_return = 0.0;
-            let mut current_weights = Vec::new();
-
+            let mut current_weights = Vec::with_capacity(weight_cols.len());
             for col_name in &weight_cols {
-                // Get weight for this asset at time t
-                let weight = if let Ok(w_col) = weights.column(col_name) {
-                    w_col.f64()
-                        .ok()
-                        .and_then(|ca| ca.get(t))
-                        .unwrap_or(0.0)
-                } else {
-                    0.0
-                };
+                let weight = weights
+                    .column(col_name)
+                    .ok()
+                    .and_then(|c| c.f64().ok())
+                    .and_then(|ca| ca.get(t))
+                    .unwrap_or(0.0);
                 current_weights.push(weight);
-
-                // Get return for this asset at time t
-                let ret = if let Ok(r_col) = returns.column(col_name) {
-                    r_col.f64()
-                        .ok()
-                        .and_then(|ca| ca.get(t))
-                        .unwrap_or(0.0)
-                } else {
-                    0.0
-                };
-
-                // Weighted return
-                period_return += weight * ret;
             }
 
-            // Calculate turnover (sum of absolute weight changes)
             if let Some(ref prev) = prev_weights {
-                let turnover: f64 = current_weights.iter()
+                // Earn returns at bar t on the position held from bar t-1.
+                let mut period_return = 0.0;
+                for (i, col_name) in weight_cols.iter().enumerate() {
+                    let ret = returns
+                        .column(col_name)
+                        .ok()
+                        .and_then(|c| c.f64().ok())
+                        .and_then(|ca| ca.get(t))
+                        .unwrap_or(0.0);
+                    period_return += prev[i] * ret;
+                }
+                // Trading cost on the t-1 -> t rebalance.
+                let turnover: f64 = current_weights
+                    .iter()
                     .zip(prev.iter())
                     .map(|(curr, prev)| (curr - prev).abs())
                     .sum();
                 total_turnover += turnover;
-
-                // Apply transaction costs based on turnover
-                let cost = turnover * self.cost_bps / 10000.0;
-                period_return -= cost;
+                period_return -= turnover * self.cost_bps / 10000.0;
+                port_returns[t] = period_return;
+            } else {
+                // Bar 0: no prior position to earn anything.
+                port_returns[t] = 0.0;
             }
 
-            port_returns[t] = period_return;
             prev_weights = Some(current_weights);
         }
 
@@ -277,6 +275,41 @@ impl Default for Backtester {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn execution_lag_prevents_same_bar_lookahead() {
+        // Foresight strategy: take a +1 position only on the bar that spikes.
+        // Same-bar trading would earn the 10% spike; the 1-bar lag must not.
+        let weights = df!("A" => &[0.0, 1.0, 0.0]).unwrap();
+        let returns = df!("A" => &[0.0, 0.10, 0.0]).unwrap();
+        let bt = Backtester { cost_bps: 0.0, slippage_coef: 0.0 };
+        let (port, _) = bt.calculate_portfolio_returns(&weights, &returns).unwrap();
+        let series: Vec<f64> = port
+            .f64()
+            .unwrap()
+            .into_iter()
+            .map(|v| v.unwrap())
+            .collect();
+        assert_eq!(series.len(), 3);
+        let total: f64 = series.iter().sum();
+        assert!(
+            total.abs() < 1e-12,
+            "execution lag must drop the same-bar look-ahead profit; got total {total}"
+        );
+    }
+
+    #[test]
+    fn execution_lag_earns_with_held_position() {
+        // Holding A across bars 0..3 should earn the bar-1 and bar-2 returns,
+        // proving the lag doesn't drop legitimate P&L.
+        let weights = df!("A" => &[1.0, 1.0, 1.0]).unwrap();
+        let returns = df!("A" => &[0.0, 0.10, 0.05]).unwrap();
+        let bt = Backtester { cost_bps: 0.0, slippage_coef: 0.0 };
+        let (port, _) = bt.calculate_portfolio_returns(&weights, &returns).unwrap();
+        let series: Vec<f64> = port.f64().unwrap().into_iter().map(|v| v.unwrap()).collect();
+        // bar 0: no prior position -> 0; bar 1: prev=1*ret=0.10; bar 2: prev=1*ret=0.05
+        assert_eq!(series, vec![0.0, 0.10, 0.05]);
+    }
 
     #[test]
     fn test_backtest_metrics() {
