@@ -2,8 +2,8 @@
 //!
 //! Implements rolling window backtests with train/test splits to detect overfitting.
 
-use crate::{GridSearch, Runtime};
-use sig_types::{BacktestMetrics, Ir, Result, SigcError};
+use crate::Runtime;
+use sig_types::{BacktestMetrics, BacktestPlan, Ir, Result, SigcError};
 use std::collections::HashMap;
 
 /// Configuration for walk-forward analysis
@@ -159,7 +159,20 @@ impl WalkForward {
         self
     }
 
-    /// Run walk-forward optimization
+    /// Run honest walk-forward evaluation.
+    ///
+    /// Loads the price panel once via `runtime.load_prices_for`, then for each
+    /// fold slices it into in-sample and out-of-sample row ranges and runs the
+    /// IR through `runtime.execute_on_prices` on each. Both `train_metrics`
+    /// and `test_metrics` are now computed from real, non-overlapping data
+    /// windows — no simulated degradation.
+    ///
+    /// Note: this implementation does **not** sweep parameters across folds.
+    /// sigc bakes parameter values into the IR at compile time, and the
+    /// runtime does not yet honour `BacktestPlan::parameters`, so any per-fold
+    /// "best parameters" would be vacuous. Sweeping requires recompiling the
+    /// `.sig` source with different values; this is left as a follow-up. The
+    /// `param_grid` field is retained for API compatibility but is unused.
     pub fn run(&self, ir: &Ir, runtime: &mut Runtime) -> Result<WalkForwardResult> {
         let num_folds = self.config.num_folds();
         if num_folds == 0 {
@@ -168,47 +181,45 @@ impl WalkForward {
             ));
         }
 
+        let plan = BacktestPlan {
+            ir: ir.clone(),
+            start_date: String::new(),
+            end_date: String::new(),
+            universe: "default".into(),
+            parameters: HashMap::new(),
+        };
+        let prices = runtime.load_prices_for(&plan)?;
+        let n_rows = prices.height();
+        let need = self.config.train_periods + self.config.test_periods;
+        if n_rows < need {
+            return Err(SigcError::Runtime(format!(
+                "walk-forward needs at least {need} rows of data, loaded {n_rows}"
+            )));
+        }
+
         let mut folds = Vec::new();
         let step = self.config.step();
 
         for fold_idx in 0..num_folds {
             let test_start = self.config.train_periods + fold_idx * step;
-            let test_end = test_start + self.config.test_periods;
-
-            let train_start = if self.config.expanding { 0 } else { test_start - self.config.train_periods };
+            let test_end = (test_start + self.config.test_periods).min(n_rows);
+            if test_end <= test_start {
+                break;
+            }
+            let train_start = if self.config.expanding {
+                0
+            } else {
+                test_start - self.config.train_periods
+            };
             let train_end = test_start;
 
-            // Optimize on training period
-            let mut grid = GridSearch::new();
-            for (name, values) in &self.param_grid {
-                grid.add_param(name, values.clone());
-            }
+            // Real in-sample evaluation on the IS slice.
+            let is_prices = prices.slice(train_start as i64, train_end - train_start);
+            let train_report = runtime.execute_on_prices(&plan, is_prices)?;
 
-            // Run optimization on training data
-            let train_results = grid.optimize(ir, runtime, "sharpe")?;
-
-            if train_results.is_empty() {
-                continue;
-            }
-
-            let best = &train_results[0];
-            let best_params = best.parameters.clone();
-            let train_metrics = best.metrics.clone();
-
-            // Apply best params to test period
-            // For now, we use the same metrics as a placeholder
-            // In a full implementation, this would run on the test period subset
-            let test_metrics = BacktestMetrics {
-                total_return: train_metrics.total_return * 0.7, // Simulate degradation
-                annualized_return: train_metrics.annualized_return * 0.7,
-                sharpe_ratio: train_metrics.sharpe_ratio * 0.8,
-                max_drawdown: train_metrics.max_drawdown * 1.2,
-                turnover: train_metrics.turnover,
-                sortino_ratio: train_metrics.sortino_ratio * 0.8,
-                calmar_ratio: train_metrics.calmar_ratio * 0.7,
-                win_rate: train_metrics.win_rate,
-                profit_factor: train_metrics.profit_factor * 0.8,
-            };
+            // Real out-of-sample evaluation on the (disjoint) OOS slice.
+            let oos_prices = prices.slice(test_start as i64, test_end - test_start);
+            let test_report = runtime.execute_on_prices(&plan, oos_prices)?;
 
             folds.push(FoldResult {
                 fold: fold_idx,
@@ -216,9 +227,9 @@ impl WalkForward {
                 train_end,
                 test_start,
                 test_end,
-                best_params,
-                train_metrics,
-                test_metrics,
+                best_params: HashMap::new(),
+                train_metrics: train_report.metrics,
+                test_metrics: test_report.metrics,
             });
         }
 
@@ -282,6 +293,32 @@ mod tests {
     fn test_config_step() {
         let config = WalkForwardConfig::new(252, 126, 21).with_step(5);
         assert_eq!(config.step(), 5);
+    }
+
+    #[test]
+    fn run_evaluates_real_is_oos_slices() {
+        // Smoke test: with the honest implementation, IS and OOS metrics come
+        // from disjoint data windows, so they should not be byte-identical the
+        // way the old simulated test_metrics = train_metrics * 0.7 path made
+        // them be.
+        use sig_compiler::Compiler;
+        let src = "data:\n  prices: load parquet from \"prices.parquet\"\n\
+                   \n\
+                   signal s:\n  emit zscore(ret(prices, periods=5))\n";
+        let ir = Compiler::new().compile(src).expect("compile");
+        let wf = WalkForward::new(WalkForwardConfig::new(252, 126, 21));
+        let mut rt = Runtime::new();
+        let result = wf.run(&ir, &mut rt).expect("walk-forward run");
+        assert!(!result.folds.is_empty(), "expected at least one fold");
+        let identical = result.folds.iter()
+            .filter(|f| f.train_metrics.sharpe_ratio.to_bits()
+                     == f.test_metrics.sharpe_ratio.to_bits())
+            .count();
+        assert!(
+            identical < result.folds.len(),
+            "IS == OOS for every fold ({}/{}); simulation regression?",
+            identical, result.folds.len()
+        );
     }
 
     #[test]

@@ -124,17 +124,23 @@ impl Runtime {
         }
     }
 
-    /// Execute IR and produce a backtest report
+    /// Execute IR and produce a backtest report (loads data per the plan).
     pub fn execute(&mut self, plan: &BacktestPlan) -> Result<BacktestReport> {
         tracing::info!("Executing backtest plan");
+        let prices = self.load_prices_for(plan)?;
+        tracing::info!("Loaded {} rows x {} columns of price data", prices.height(), prices.width());
+        self.execute_on_prices(plan, prices)
+    }
 
-        // Load data from sources specified in IR, or generate sample data
-        let prices = if !plan.ir.metadata.data_sources.is_empty() {
+    /// Load the price panel referenced by the plan, honoring its date range
+    /// and falling back to deterministic synthetic data if the source is
+    /// unavailable.
+    pub fn load_prices_for(&self, plan: &BacktestPlan) -> Result<DataFrame> {
+        if !plan.ir.metadata.data_sources.is_empty() {
             let loader = DataLoader::new();
             let source = &plan.ir.metadata.data_sources[0];
             tracing::info!("Loading data from: {}", source.path);
 
-            // Create date range from plan
             let date_range = DateRange {
                 start: if plan.start_date.is_empty() { None } else { Some(plan.start_date.clone()) },
                 end: if plan.end_date.is_empty() { None } else { Some(plan.end_date.clone()) },
@@ -143,30 +149,27 @@ impl Runtime {
             match loader.load_with_dates(&source.path, "date", &date_range) {
                 Ok(df) => {
                     tracing::info!("Loaded {} rows x {} columns from {} (filtered by date)", df.height(), df.width(), source.path);
-                    df
+                    return Ok(df);
                 }
                 Err(e) => {
-                    // Fall back to loading without date filter
                     tracing::warn!("Failed to load with dates: {}, trying without filter", e);
-                    match loader.load(&source.path) {
-                        Ok(df) => {
-                            tracing::info!("Loaded {} rows x {} columns from {}", df.height(), df.width(), source.path);
-                            df
-                        }
-                        Err(e2) => {
-                            tracing::warn!("Failed to load {}: {}, using sample data", source.path, e2);
-                            DataLoader::sample_prices(252, 10)?
-                        }
+                    if let Ok(df) = loader.load(&source.path) {
+                        tracing::info!("Loaded {} rows x {} columns from {}", df.height(), df.width(), source.path);
+                        return Ok(df);
                     }
+                    tracing::warn!("Falling back to synthetic sample data");
                 }
             }
-        } else {
-            DataLoader::sample_prices(252, 10)?
-        };
-        tracing::info!("Loaded {} rows x {} columns of price data", prices.height(), prices.width());
+        }
+        DataLoader::sample_prices(252, 10)
+    }
 
+    /// Execute the IR over a pre-loaded price frame. Used by `execute` and by
+    /// walk-forward to evaluate fold slices honestly. The plan's date fields
+    /// are not re-applied here — slice the frame before calling.
+    pub fn execute_on_prices(&mut self, plan: &BacktestPlan, prices: DataFrame) -> Result<BacktestReport> {
         let n_outputs = plan.ir.outputs.len();
-        tracing::info!("IR has {} outputs, {} nodes", n_outputs, plan.ir.nodes.len());
+        tracing::info!("Computing IR ({} outputs, {} nodes) on {} rows", n_outputs, plan.ir.nodes.len(), prices.height());
 
         // Get all price columns (exclude date)
         let col_names: Vec<String> = prices.get_column_names()
