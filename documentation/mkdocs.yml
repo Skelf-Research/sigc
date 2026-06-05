@@ -1,10 +1,10 @@
 site_name: sigc Documentation
-site_url: https://docs.skelfresearch.com/sigc
+site_url: https://docs.skelfresearch.com/sigc/
 site_description: Documentation for sigc - A Rust-based quantitative finance research platform with a DSL for writing trading signals
 site_author: Skelf Research
 
-repo_url: https://github.com/skelf-Research/sigc
-repo_name: skelf-Research/sigc
+repo_url: https://github.com/Skelf-Research/sigc
+repo_name: Skelf-Research/sigc
 edit_uri: edit/main/documentation/docs/
 
 copyright: Copyright &copy; 2024-2026 Skelf Research
